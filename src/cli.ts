@@ -261,10 +261,27 @@ async function main() { // Make main async
         console.log('  /exit    - Quit the application');
         console.log('  /help    - Show this help message');
         console.log('  /models  - List available OpenAI models');
+        console.log('  /clear   - Clear chat history');
+        console.log('  /history - Show chat history');
         break;
       case '/models':
         console.log('Fetching available models...');
         await listOpenAIModels();
+        break;
+      case '/clear':
+        chatHistory = [];
+        console.log('Chat history cleared.');
+        break;
+      case '/history':
+        if (chatHistory.length === 0) {
+          console.log('Chat history is empty.');
+        } else {
+          console.log('\n--- Chat History ---');
+          chatHistory.forEach((msg, index) => {
+            console.log(`${index + 1}. ${msg.role.toUpperCase()}: ${msg.content}`);
+          });
+          console.log('--------------------\n');
+        }
         break;
       default:
         // Add user's message to chat history
