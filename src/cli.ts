@@ -24,7 +24,13 @@ try {
   process.exit(1);
 }
 
-async function chatWithOpenAI(prompt: string) {
+/**
+ * Communicates with the OpenAI API to get a chat completion stream.
+ * This function is an asynchronous generator that yields data chunks as they are received.
+ * @param prompt The user's input prompt.
+ * @returns An asynchronous generator that yields parsed JSON data chunks from the API.
+ */
+async function* chatWithOpenAI(prompt: string) {
   const { apiKey, baseUrl, model } = config.openai;
   const url = `${baseUrl}/chat/completions`;
 
@@ -53,9 +59,6 @@ async function chatWithOpenAI(prompt: string) {
 
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
-    let isStreamingThinking = false;
-    const GREY_COLOR = '\x1b[90m'; // Dark grey
-    const RESET_COLOR = '\x1b[0m'; // Reset color
 
     while (true) {
       const { done, value } = await reader.read();
@@ -75,57 +78,74 @@ async function chatWithOpenAI(prompt: string) {
           }
           try {
             const data = JSON.parse(jsonStr);
-            // console.error(JSON.stringify(data, null, 2));
-            const reasoningContent = data.choices[0]?.delta?.reasoning_content;
-            const content = data.choices[0]?.delta?.content;
-            const finishReason = data.choices[0]?.finish_reason;
-
-            if (reasoningContent) {
-              if (!isStreamingThinking) {
-                process.stdout.write(GREY_COLOR + 'THINKING: ');
-                isStreamingThinking = true;
-              }
-              process.stdout.write(reasoningContent);
-            } else {
-              if (isStreamingThinking) {
-                process.stdout.write(RESET_COLOR + '\n');
-                isStreamingThinking = false;
-              }
-              if (content) {
-                process.stdout.write(content);
-              }
-            }
-
-            if (finishReason === 'stop') {
-              if (isStreamingThinking) {
-                process.stdout.write(RESET_COLOR + '\n');
-                isStreamingThinking = false;
-              }
-              const { usage, timings } = data;
-              if (usage && timings) {
-                process.stdout.write(GREY_COLOR);
-                process.stdout.write(`\nTotal Tokens: ${usage.total_tokens}`);
-                process.stdout.write(` | Prompt/sec: ${timings.prompt_per_second.toFixed(2)}`);
-                process.stdout.write(` | Predicted/sec: ${timings.predicted_per_second.toFixed(2)}${RESET_COLOR}`);
-              }
-              break; // End of output
-            }
+            yield data;
           } catch (e) {
             // console.error('Error parsing JSON:', e, 'Line:', jsonStr);
           }
         }
       }
     }
-    if (isStreamingThinking) { // Ensure a newline and reset if thinking ended right before stream finished
-      process.stdout.write(RESET_COLOR);
-    }
-    process.stdout.write('\n'); // Newline after the streamed response
   } catch (error) {
     console.error('Error communicating with OpenAI:', error);
   }
 }
 
+/**
+ * Handles the asynchronous stream of chat completion data and outputs it to the console.
+ * This function manages the display of reasoning content, regular content, and performance metrics.
+ * @param stream An asynchronous generator yielding data chunks from the chat completion.
+ */
+async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
+  let isStreamingThinking = false;
+  const GREY_COLOR = '\x1b[90m'; // Dark grey
+  const RESET_COLOR = '\x1b[0m'; // Reset color
 
+  for await (const data of stream) {
+    const reasoningContent = data.choices[0]?.delta?.reasoning_content;
+    const content = data.choices[0]?.delta?.content;
+    const finishReason = data.choices[0]?.finish_reason;
+
+    if (reasoningContent) {
+      if (!isStreamingThinking) {
+        process.stdout.write(GREY_COLOR + 'THINKING: ');
+        isStreamingThinking = true;
+      }
+      process.stdout.write(reasoningContent);
+    } else {
+      if (isStreamingThinking) {
+        process.stdout.write(RESET_COLOR + '\n');
+        isStreamingThinking = false;
+      }
+      if (content) {
+        process.stdout.write(content);
+      }
+    }
+
+    if (finishReason === 'stop') {
+      if (isStreamingThinking) {
+        process.stdout.write(RESET_COLOR + '\n');
+        isStreamingThinking = false;
+      }
+      const { usage, timings } = data;
+      if (usage && timings) {
+        process.stdout.write(GREY_COLOR);
+        process.stdout.write(`\nTotal Tokens: ${usage.total_tokens}`);
+        process.stdout.write(` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)}`);
+        process.stdout.write(` | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}\n`);
+        process.stdout.write(RESET_COLOR);
+      }
+      break; // End of output
+    }
+  }
+  if (isStreamingThinking) { // Ensure a newline and reset if thinking ended right before stream finished
+    process.stdout.write(RESET_COLOR + '\n');
+  }
+  process.stdout.write('\n'); // Newline after the streamed response
+}
+
+/**
+ * Main function to initialize the CLI, load configuration, and handle user input.
+ */
 function main() {
   const rl = createInterface({
     input: process.stdin,
@@ -151,7 +171,8 @@ function main() {
       default:
         // Send unknown commands to the chatbot
         console.log(`Sending to AI: ${input}`);
-        await chatWithOpenAI(input.trim());
+        const chatStream = chatWithOpenAI(input.trim());
+        await handleChatStreamOutput(chatStream);
     }
   });
 
