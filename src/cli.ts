@@ -14,12 +14,13 @@ interface Config {
 }
 
 interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
 let config: Config;
 let chatHistory: ChatMessage[] = [];
+let systemPrompt: string | null = null; // Variable to store the system prompt
 
 try {
   const configPath = path.join(__dirname, '..', 'config.json');
@@ -263,6 +264,15 @@ async function main() { // Make main async
         console.log('  /models  - List available OpenAI models');
         console.log('  /clear   - Clear chat history');
         console.log('  /history - Show chat history');
+        console.log('  /system <prompt> - Set the system prompt for the chatbot');
+        break;
+      case command.startsWith('/system ') ? command : '': // Handle /system command
+        systemPrompt = input.substring('/system '.length).trim();
+        if (systemPrompt) {
+          console.log(`System prompt set to: "${systemPrompt}"`);
+        } else {
+          console.log('System prompt cleared.');
+        }
         break;
       case '/models':
         console.log('Fetching available models...');
@@ -285,10 +295,21 @@ async function main() { // Make main async
         break;
       default:
         // Add user's message to chat history
-        chatHistory.push({ role: 'user', content: input.trim() });
+        // Add user's message to chat history
+        const userMessage: ChatMessage = { role: 'user', content: input.trim() };
+
+        // Prepare messages for OpenAI, including system prompt if set
+        const messagesToSend: ChatMessage[] = [];
+        if (systemPrompt) {
+          messagesToSend.push({ role: 'system', content: systemPrompt });
+        }
+        messagesToSend.push(...chatHistory, userMessage); // Add existing history and new user message
+
+        // Update chat history with the user's message
+        chatHistory.push(userMessage);
 
         // Send chat history to the chatbot
-        const chatStream = chatWithOpenAI(chatHistory);
+        const chatStream = chatWithOpenAI(messagesToSend);
         await handleChatStreamOutput(chatStream);
     }
   });
