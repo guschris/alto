@@ -54,6 +54,8 @@ async function chatWithOpenAI(prompt: string) {
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
     let isStreamingThinking = false;
+    const GREY_COLOR = '\x1b[90m'; // Dark grey
+    const RESET_COLOR = '\x1b[0m'; // Reset color
 
     while (true) {
       const { done, value } = await reader.read();
@@ -73,29 +75,40 @@ async function chatWithOpenAI(prompt: string) {
           }
           try {
             const data = JSON.parse(jsonStr);
+            // console.error(JSON.stringify(data, null, 2));
             const reasoningContent = data.choices[0]?.delta?.reasoning_content;
             const content = data.choices[0]?.delta?.content;
+            const finishReason = data.choices[0]?.finish_reason;
 
             if (reasoningContent) {
               if (!isStreamingThinking) {
-                process.stdout.write('THINKING: ');
+                process.stdout.write(GREY_COLOR + 'THINKING: ');
                 isStreamingThinking = true;
               }
-              const parts = reasoningContent.split('\n');
-              for (let i = 0; i < parts.length; i++) {
-                process.stdout.write(parts[i]);
-                if (i < parts.length - 1) {
-                  process.stdout.write('\nTHINKING: ');
-                }
-              }
+              process.stdout.write(reasoningContent);
             } else {
               if (isStreamingThinking) {
-                process.stdout.write('\n');
+                process.stdout.write(RESET_COLOR + '\n');
                 isStreamingThinking = false;
               }
               if (content) {
                 process.stdout.write(content);
               }
+            }
+
+            if (finishReason === 'stop') {
+              if (isStreamingThinking) {
+                process.stdout.write(RESET_COLOR + '\n');
+                isStreamingThinking = false;
+              }
+              const { usage, timings } = data;
+              if (usage && timings) {
+                process.stdout.write(GREY_COLOR);
+                process.stdout.write(`\nTotal Tokens: ${usage.total_tokens}`);
+                process.stdout.write(` | Prompt/sec: ${timings.prompt_per_second.toFixed(2)}`);
+                process.stdout.write(` | Predicted/sec: ${timings.predicted_per_second.toFixed(2)}${RESET_COLOR}`);
+              }
+              break; // End of output
             }
           } catch (e) {
             // console.error('Error parsing JSON:', e, 'Line:', jsonStr);
@@ -103,8 +116,8 @@ async function chatWithOpenAI(prompt: string) {
         }
       }
     }
-    if (isStreamingThinking) { // Ensure a newline if thinking ended right before stream finished
-      process.stdout.write('\n');
+    if (isStreamingThinking) { // Ensure a newline and reset if thinking ended right before stream finished
+      process.stdout.write(RESET_COLOR);
     }
     process.stdout.write('\n'); // Newline after the streamed response
   } catch (error) {
