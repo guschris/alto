@@ -91,6 +91,79 @@ async function* chatWithOpenAI(prompt: string) {
 }
 
 /**
+ * Fetches and lists available models from the OpenAI API.
+ */
+/**
+ * Fetches and lists available models from the OpenAI API.
+ */
+async function listOpenAIModels() {
+  const { apiKey, baseUrl } = config.openai;
+  const url = `${baseUrl}/models`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('\nAvailable Models:');
+    if (data.data && Array.isArray(data.data)) {
+      data.data.forEach((model: any) => {
+        console.log(`- ${model.id}`);
+      });
+    } else {
+      console.log('No models found or unexpected response format.');
+    }
+    console.log(''); // Add a newline for better formatting
+  } catch (error) {
+    console.error('Error listing models:', error);
+  }
+}
+
+/**
+ * Fetches the context window size (n_ctx_train) for the first available model from the OpenAI API.
+ * @returns The context window size as a number, or null if not found or an error occurs.
+ */
+let contextWindowSize: number | null = null;
+
+async function fetchContextWindowSize(): Promise<number | null> {
+  const { apiKey, baseUrl } = config.openai;
+  const url = `${baseUrl}/models`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+      const firstModel = data.data[0];
+      if (firstModel.meta && typeof firstModel.meta.n_ctx_train === 'number') {
+        return firstModel.meta.n_ctx_train;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching context window size:', error);
+    return null;
+  }
+}
+
+/**
  * Handles the asynchronous stream of chat completion data and outputs it to the console.
  * This function manages the display of reasoning content, regular content, and performance metrics.
  * @param stream An asynchronous generator yielding data chunks from the chat completion.
@@ -129,9 +202,14 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
       const { usage, timings } = data;
       if (usage && timings) {
         process.stdout.write(GREY_COLOR);
-        process.stdout.write(`\nTotal Tokens: ${usage.total_tokens}`);
-        process.stdout.write(` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)}`);
-        process.stdout.write(` | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}\n`);
+        let outputString = `\nTotal Tokens: ${usage.total_tokens}`;
+        if (contextWindowSize !== null) {
+          const percentUsed = ((usage.total_tokens / contextWindowSize) * 100).toFixed(2);
+          outputString += ` / ${contextWindowSize} (${percentUsed}%)`;
+        }
+        outputString += ` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)}`;
+        outputString += ` | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}\n`;
+        process.stdout.write(outputString);
         process.stdout.write(RESET_COLOR);
       }
       break; // End of output
@@ -146,7 +224,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
 /**
  * Main function to initialize the CLI, load configuration, and handle user input.
  */
-function main() {
+async function main() { // Make main async
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout
@@ -154,6 +232,8 @@ function main() {
 
   console.log('AI Coding Assistant CLI');
   console.log('Type "/help" for available commands'); // Updated help message
+
+  contextWindowSize = await fetchContextWindowSize(); // Fetch context window size at startup
 
   rl.on('line', async (input) => { // Made async to await chatWithOpenAI
     const command = input.trim().toLowerCase();
@@ -165,12 +245,16 @@ function main() {
         break;
       case '/help':
         console.log('Available commands:');
-        console.log('  /exit   - Quit the application');
-        console.log('  /help   - Show this help message');
+        console.log('  /exit    - Quit the application');
+        console.log('  /help    - Show this help message');
+        console.log('  /models  - List available OpenAI models');
+        break;
+      case '/models':
+        console.log('Fetching available models...');
+        await listOpenAIModels();
         break;
       default:
         // Send unknown commands to the chatbot
-        console.log(`Sending to AI: ${input}`);
         const chatStream = chatWithOpenAI(input.trim());
         await handleChatStreamOutput(chatStream);
     }
