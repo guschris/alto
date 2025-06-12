@@ -13,7 +13,13 @@ interface Config {
   openai: OpenAIConfig;
 }
 
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 let config: Config;
+let chatHistory: ChatMessage[] = [];
 
 try {
   const configPath = path.join(__dirname, '..', 'config.json');
@@ -27,10 +33,10 @@ try {
 /**
  * Communicates with the OpenAI API to get a chat completion stream.
  * This function is an asynchronous generator that yields data chunks as they are received.
- * @param prompt The user's input prompt.
+ * @param messages The array of chat messages, including previous history and the current prompt.
  * @returns An asynchronous generator that yields parsed JSON data chunks from the API.
  */
-async function* chatWithOpenAI(prompt: string) {
+async function* chatWithOpenAI(messages: ChatMessage[]) {
   const { apiKey, baseUrl, model } = config.openai;
   const url = `${baseUrl}/chat/completions`;
 
@@ -43,7 +49,7 @@ async function* chatWithOpenAI(prompt: string) {
       },
       body: JSON.stringify({
         model: model,
-        messages: [{ role: 'user', content: prompt }],
+        messages: messages,
         stream: true
       })
     });
@@ -170,6 +176,7 @@ async function fetchContextWindowSize(): Promise<number | null> {
  */
 async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
   let isStreamingThinking = false;
+  let assistantResponseContent = ''; // Accumulate assistant's content
   const GREY_COLOR = '\x1b[90m'; // Dark grey
   const RESET_COLOR = '\x1b[0m'; // Reset color
 
@@ -191,6 +198,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
       }
       if (content) {
         process.stdout.write(content);
+        assistantResponseContent += content; // Accumulate content
       }
     }
 
@@ -219,6 +227,11 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
     process.stdout.write(RESET_COLOR + '\n');
   }
   process.stdout.write('\n'); // Newline after the streamed response
+
+  // Add assistant's response to chat history
+  if (assistantResponseContent.length > 0) {
+    chatHistory.push({ role: 'assistant', content: assistantResponseContent });
+  }
 }
 
 /**
@@ -254,8 +267,11 @@ async function main() { // Make main async
         await listOpenAIModels();
         break;
       default:
-        // Send unknown commands to the chatbot
-        const chatStream = chatWithOpenAI(input.trim());
+        // Add user's message to chat history
+        chatHistory.push({ role: 'user', content: input.trim() });
+
+        // Send chat history to the chatbot
+        const chatStream = chatWithOpenAI(chatHistory);
         await handleChatStreamOutput(chatStream);
     }
   });
