@@ -21,7 +21,7 @@ interface ChatMessage {
 
 let config: Config;
 let chatHistory: ChatMessage[] = [];
-let systemPrompt: string | null = altoSystemPrompt();
+let systemPrompt: string = altoSystemPrompt();
 
 try {
   const configPath = path.join(__dirname, '..', 'config.json');
@@ -147,9 +147,7 @@ async function fetchContextWindowSize(): Promise<number | null> {
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`
-      }
+      headers: { 'Authorization': `Bearer ${apiKey}` }
     });
 
     if (!response.ok) {
@@ -254,21 +252,60 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
 
   // Display usage and timings
   if (mergedResponse.usage && mergedResponse.timings) {
-    process.stderr.write(GREY_COLOR);
-    let outputString = `\nTotal Tokens: ${mergedResponse.usage.total_tokens}`;
+    const { usage, timings } = mergedResponse;
+    let outputString = `\n${GREY_COLOR}Total Tokens: ${usage.total_tokens}`;
     if (contextWindowSize !== null) {
-      const percentUsed = ((mergedResponse.usage.total_tokens / contextWindowSize) * 100).toFixed(2);
+      const percentUsed = ((usage.total_tokens / contextWindowSize) * 100).toFixed(2);
       outputString += ` / ${contextWindowSize} (${percentUsed}%)`;
     }
-    outputString += ` | Prompt PPS: ${mergedResponse.timings.prompt_per_second.toFixed(2)}`;
-    outputString += ` | Predicted PPS: ${mergedResponse.timings.predicted_per_second.toFixed(2)}\n`;
+    outputString += ` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)} | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}${RESET_COLOR}\n`;
     process.stderr.write(outputString);
-    process.stderr.write(RESET_COLOR);
   }
 
   // Add assistant's response to chat history
   if (assistantResponseContent.length > 0) {
     chatHistory.push({ role: 'assistant', content: assistantResponseContent });
+  }
+}
+
+async function chat(input: string) {
+    chatHistory.push({ role: 'user', content: input });
+    const chatStream = chatWithOpenAI(chatHistory);
+    await handleChatStreamOutput(chatStream);
+}
+
+function clearChatHistory() {
+  chatHistory = [ { role: "system", content: systemPrompt }];
+}
+
+function showChatHistory() {
+  if (chatHistory.length === 0) {
+    console.log('Chat history is empty.');
+  } else {
+    console.log('\n--- Chat History ---');
+    chatHistory.filter(msg => msg.role !== "system").forEach((msg, index) => {
+      console.log(`${index + 1}. ${msg.role.toUpperCase()}: ${msg.content}`);
+    });
+    console.log('--------------------\n');
+  }
+}
+
+function showHelp() {
+  console.log('Available commands:');
+  console.log('  /exit    - Quit the application');
+  console.log('  /help    - Show this help message');
+  console.log('  /models  - List available OpenAI models');
+  console.log('  /clear   - Clear chat history');
+  console.log('  /history - Show chat history');
+  console.log('  /system <prompt> - Set the system prompt for the chatbot');
+}
+
+function setSystemPrompt(input: string) {
+  systemPrompt = input.substring('/system '.length).trim();
+  if (systemPrompt) {
+    console.log(`System prompt set to: "${systemPrompt}"`);
+  } else {
+    console.log('System prompt cleared.');
   }
 }
 
@@ -285,6 +322,7 @@ async function main() { // Make main async
   console.log('Type "/help" for available commands'); // Updated help message
 
   contextWindowSize = await fetchContextWindowSize(); // Fetch context window size at startup
+  clearChatHistory(); // setup the system prompt
 
   rl.on('line', async (input) => { // Made async to await chatWithOpenAI
     const command = input.trim().toLowerCase();
@@ -295,59 +333,25 @@ async function main() { // Make main async
         rl.close();
         break;
       case '/help':
-        console.log('Available commands:');
-        console.log('  /exit    - Quit the application');
-        console.log('  /help    - Show this help message');
-        console.log('  /models  - List available OpenAI models');
-        console.log('  /clear   - Clear chat history');
-        console.log('  /history - Show chat history');
-        console.log('  /system <prompt> - Set the system prompt for the chatbot');
+        showHelp();
         break;
       case command.startsWith('/system ') ? command : '': // Handle /system command
-        systemPrompt = input.substring('/system '.length).trim();
-        if (systemPrompt) {
-          console.log(`System prompt set to: "${systemPrompt}"`);
-        } else {
-          console.log('System prompt cleared.');
-        }
+        setSystemPrompt(input);
         break;
       case '/models':
         console.log('Fetching available models...');
         await listOpenAIModels();
         break;
       case '/clear':
-        chatHistory = [];
+        clearChatHistory();
         console.log('Chat history cleared.');
         break;
       case '/history':
-        if (chatHistory.length === 0) {
-          console.log('Chat history is empty.');
-        } else {
-          console.log('\n--- Chat History ---');
-          chatHistory.forEach((msg, index) => {
-            console.log(`${index + 1}. ${msg.role.toUpperCase()}: ${msg.content}`);
-          });
-          console.log('--------------------\n');
-        }
+        showChatHistory();
         break;
       default:
-        // Add user's message to chat history
-        // Add user's message to chat history
-        const userMessage: ChatMessage = { role: 'user', content: input.trim() };
-
-        // Prepare messages for OpenAI, including system prompt if set
-        const messagesToSend: ChatMessage[] = [];
-        if (systemPrompt) {
-          messagesToSend.push({ role: 'system', content: systemPrompt });
-        }
-        messagesToSend.push(...chatHistory, userMessage); // Add existing history and new user message
-
-        // Update chat history with the user's message
-        chatHistory.push(userMessage);
-
-        // Send chat history to the chatbot
-        const chatStream = chatWithOpenAI(messagesToSend);
-        await handleChatStreamOutput(chatStream);
+        await chat(input.trim())
+        break;
     }
   });
 
