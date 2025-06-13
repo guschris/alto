@@ -1,0 +1,1 @@
+generate a summary commit message for me, from the output of command "git status -v" /nothink
