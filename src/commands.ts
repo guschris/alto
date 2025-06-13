@@ -5,6 +5,51 @@ import { exec } from 'child_process';
 
 const commandNames = [ 'list_files', 'read_file', 'write_file', 'search_files', 'list_code_definitions' ];
 
+const languageDefinitions: { [key: string]: { type: string, regex: RegExp }[] } = {
+    '.js': [
+        { type: 'class', regex: /(?:class|export class)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/ },
+        { type: 'function', regex: /(?:function|export function)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(/ },
+        { type: 'arrow function', regex: /(?:const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*\(.*\)\s*=>/ },
+    ],
+    '.ts': [
+        { type: 'class', regex: /(?:class|export class)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/ },
+        { type: 'function', regex: /(?:function|export function)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(/ },
+        { type: 'arrow function', regex: /(?:const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*\(.*\)\s*=>/ },
+    ],
+    '.jsx': [
+        { type: 'class', regex: /(?:class|export class)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/ },
+        { type: 'function', regex: /(?:function|export function)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(/ },
+        { type: 'arrow function', regex: /(?:const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*\(.*\)\s*=>/ },
+    ],
+    '.tsx': [
+        { type: 'class', regex: /(?:class|export class)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/ },
+        { type: 'function', regex: /(?:function|export function)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(/ },
+        { type: 'arrow function', regex: /(?:const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*\(.*\)\s*=>/ },
+    ],
+    '.py': [
+        { type: 'function', regex: /def\s+([a-zA-Z_][0-9a-zA-Z_]*)\s*\(.*?\):/ },
+        { type: 'class', regex: /class\s+([a-zA-Z_][0-9a-zA-Z_]*)(?:\(.*?\))?:/ },
+    ],
+    '.go': [
+        { type: 'function', regex: /func\s+(?:\([a-zA-Z_][0-9a-zA-Z_]*\s+[a-zA-Z_][0-9a-zA-Z_]*\)\s+)?([a-zA-Z_][0-9a-zA-Z_]*)\s*\(.*?\)\s*(?:[a-zA-Z_][0-9a-zA-Z_]*\s*)?{/ },
+        { type: 'struct', regex: /type\s+([a-zA-Z_][0-9a-zA-Z_]*)\s+struct\s*{/ },
+    ],
+    '.java': [
+        { type: 'class', regex: /(?:public|private|protected)?\s*(?:static\s+)?class\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/ },
+        { type: 'interface', regex: /(?:public|private|protected)?\s*interface\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/ },
+        { type: 'method', regex: /(?:public|private|protected)?\s*(?:static\s+)?(?:final\s+)?(?:abstract\s+)?(?:<[a-zA-Z_$][0-9a-zA-Z_$]*>)?\s*[a-zA-Z_$][0-9a-zA-Z_$]*\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(.*?\)/ },
+    ],
+    '.cs': [
+        { type: 'class', regex: /(?:public|private|protected|internal)?\s*(?:static\s+)?class\s+([a-zA-Z_][0-9a-zA-Z_]*)/ },
+        { type: 'interface', regex: /(?:public|private|protected|internal)?\s*interface\s+([a-zA-Z_][0-9a-zA-Z_]*)/ },
+        { type: 'method', regex: /(?:public|private|protected|internal)?\s*(?:static\s+)?(?:virtual\s+)?(?:abstract\s+)?(?:override\s+)?(?:async\s+)?(?:<[a-zA-Z_][0-9a-zA-Z_]*>)?\s*[a-zA-Z_][0-9a-zA-Z_]*\s+([a-zA-Z_][0-9a-zA-Z_]*)\s*\(.*?\)/ },
+    ],
+    '.zig': [
+        { type: 'function', regex: /fn\s+([a-zA-Z_][0-9a-zA-Z_]*)\s*\(.*?\)\s*/ },
+        { type: 'struct', regex: /pub\s+const\s+([a-zA-Z_][0-9a-zA-Z_]*)\s*=\s*struct\s*{/ },
+    ],
+};
+
 export function extractCommand(response: string): string|null {
     const startTagMatcher = new RegExp(`^<(${commandNames.join('|')})>$`, "m") // multiline search, matches whole lines only
     const matches = startTagMatcher.exec(response);
@@ -228,30 +273,20 @@ function list_code_definitions(dirPath: string, recursive: boolean = false): str
                 }
             } else if (dirent.isFile()) {
                 const fileExtension = path.extname(dirent.name).toLowerCase();
-                if (['.js', '.ts', '.jsx', '.tsx'].includes(fileExtension)) {
+                const definitionsForLanguage = languageDefinitions[fileExtension];
+
+                if (definitionsForLanguage) { // Check if we have patterns for this language
                     try {
                         const content = fs.readFileSync(fullPath, 'utf-8');
                         const lines = content.split('\n');
 
                         lines.forEach((line, index) => {
-                            let match;
-                            // Class definitions
-                            match = line.match(/(?:class|export class)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/);
-                            if (match) {
-                                definitions.push(`${relativePath}:${index + 1}: class ${match[1]}`);
-                            }
-
-                            // Function definitions
-                            match = line.match(/(?:function|export function)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(/);
-                            if (match) {
-                                definitions.push(`${relativePath}:${index + 1}: function ${match[1]}`);
-                            }
-
-                            // Arrow function definitions (simple cases: const func = () => {})
-                            match = line.match(/(?:const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*\(.*\)\s*=>/);
-                            if (match) {
-                                definitions.push(`${relativePath}:${index + 1}: arrow function ${match[1]}`);
-                            }
+                            definitionsForLanguage.forEach(def => {
+                                const match = line.match(def.regex);
+                                if (match) {
+                                    definitions.push(`${relativePath}:${index + 1}: ${def.type} ${match[1]}`);
+                                }
+                            });
                         });
 
                     } catch (readError: any) {
