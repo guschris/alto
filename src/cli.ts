@@ -7,7 +7,7 @@ import { extractCommand, runCommand } from './commands';
 function altoSystemPrompt(): string {
     const promptPath = path.join(__dirname, 'scripts', 'system-prompt.md');
     const promptContent = readFileSync(promptPath, 'utf8');
-    process.stderr.write(`\x1b[90mSystem prompt loaded from: ${promptPath}\x1b[0m\n`); // Grey color for system messages
+    process.stdout.write(`\x1b[90mSystem prompt loaded from: ${promptPath}\x1b[0m\n`); // Grey color for system messages
     return promptContent;
 }
 
@@ -19,6 +19,39 @@ interface OpenAIConfig {
 
 interface Config {
   openai: OpenAIConfig;
+  chatTimeout?: number | string; // Optional timeout setting, can be number or string
+}
+
+/**
+ * Parses a time string (e.g., "10s", "5m", "2h") into milliseconds.
+ * Supports 's' for seconds, 'm' for minutes, 'h' for hours.
+ * Case-insensitive for units.
+ * @param timeString The time string to parse.
+ * @returns The time in milliseconds.
+ * @throws Error if the format is invalid.
+ */
+function parseTimeStringToMs(timeString: string): number {
+    const trimmed = timeString.trim();
+    const match = trimmed.match(/^(\d+)\s*([smh])$/i);
+
+    if (!match) {
+        throw new Error(`Invalid time string format: "${timeString}". Expected format like "10s", "5m", "2h".`);
+    }
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2].toLowerCase();
+
+    switch (unit) {
+        case 's':
+            return value * 1000;
+        case 'm':
+            return value * 60 * 1000;
+        case 'h':
+            return value * 60 * 60 * 1000;
+        default:
+            // This case should ideally not be reached due to regex, but as a safeguard
+            throw new Error(`Unknown time unit: "${unit}" in "${timeString}".`);
+    }
 }
 
 interface ChatMessage {
@@ -58,7 +91,8 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
     };
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10 * 60000); // 10 minutes timeout
+    const chatTimeout = getChatTimeout();
+    const timeoutId = setTimeout(() => controller.abort(), chatTimeout);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -116,6 +150,21 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
       console.error('Error communicating with OpenAI:', error);
     }
   }
+}
+
+function getChatTimeout() {
+  let chatTimeoutValue = 600000; // Default to 10 minutes (600000 ms)
+
+  if (typeof config.chatTimeout === 'string') {
+    try {
+      chatTimeoutValue = parseTimeStringToMs(config.chatTimeout);
+    } catch (e: any) {
+      console.error(`Warning: Invalid chatTimeout in config.json: ${e.message}. Using default 10 minutes.`);
+    }
+  } else if (typeof config.chatTimeout === 'number' && config.chatTimeout > 0) {
+    chatTimeoutValue = config.chatTimeout;
+  }
+  return chatTimeoutValue;
 }
 
 /**
@@ -227,14 +276,14 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
           // Stream content and reasoning_content immediately
           if (delta.reasoning_content) {
             if (!isStreamingThinking) {
-              process.stderr.write(GREY_COLOR + 'THINKING: ');
+              process.stdout.write(GREY_COLOR + 'THINKING: ');
               isStreamingThinking = true;
             }
             process.stdout.write(delta.reasoning_content);
             mergedChoice.delta.reasoning_content = (mergedChoice.delta.reasoning_content || '') + delta.reasoning_content;
           } else {
             if (isStreamingThinking) {
-              process.stderr.write(RESET_COLOR + '\n');
+              process.stdout.write(RESET_COLOR + '\n');
               isStreamingThinking = false;
             }
             if (delta.content) {
@@ -262,7 +311,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
   }
 
   if (isStreamingThinking) { // Ensure a newline and reset if thinking ended right before stream finished
-    process.stderr.write(RESET_COLOR);
+    process.stdout.write(RESET_COLOR);
   }
   process.stdout.write('\n'); // Newline after the streamed response
 
@@ -276,7 +325,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
     }
     if (timings.prompt_per_second) outputString += ` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)}`;
     if (timings.predicted_per_second) outputString += ` | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}${RESET_COLOR}\n`;
-    process.stderr.write(outputString);
+    process.stdout.write(outputString);
   }
 
   // Add assistant's response to chat history

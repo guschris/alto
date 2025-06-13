@@ -78,7 +78,7 @@ export async function runCommand(commandXml: string): Promise<string> {
     const obj = parser.parse(commandXml);
 
     if (obj.list_files) {
-        return list_files(obj.list_files.path, obj.list_files.recursive);
+        return await list_files(obj.list_files.path, obj.list_files.recursive);
     } else if (obj.read_file) {
         return read_file(obj.read_file.path);
     } else if (obj.write_file) {
@@ -102,23 +102,31 @@ export async function runCommand(commandXml: string): Promise<string> {
  * @param recursive If true, lists files recursively in subdirectories.
  * @returns An array of file paths relative to the current working directory.
  */
-function list_files(dirPath: string, recursive: boolean = false): string {
+async function list_files(dirPath: string, recursive: boolean = false): Promise<string> {
     let files: string[] = [];
     const absoluteDirPath = path.resolve(process.cwd(), dirPath);
+    const ignorePatterns = getGitIgnorePatterns(absoluteDirPath);
 
     try {
-        const dirents = fs.readdirSync(absoluteDirPath, { withFileTypes: true });
+        const dirents = await fsp.readdir(absoluteDirPath, { withFileTypes: true });
 
         for (const dirent of dirents) {
-            const res = path.resolve(absoluteDirPath, dirent.name);
-            const relativeRes = path.relative(process.cwd(), res);
+            const fullPath = path.resolve(absoluteDirPath, dirent.name);
+            const relativePath = path.relative(process.cwd(), fullPath);
+
+            if (shouldIgnoreEntry(dirent, ignorePatterns)) {
+                continue;
+            }
 
             if (dirent.isDirectory()) {
                 if (recursive) {
-                    files = files.concat(list_files(relativeRes, true));
+                    const subFiles = await list_files(relativePath, true);
+                    if (subFiles !== '(no files)' && !subFiles.startsWith('ERROR:')) {
+                        files = files.concat(subFiles.split('\n'));
+                    }
                 }
             } else {
-                files.push(relativeRes);
+                files.push(relativePath);
             }
         }
     } catch (error: any) {
@@ -130,6 +138,18 @@ function list_files(dirPath: string, recursive: boolean = false): string {
     }
 
     return files.join('\n');
+}
+
+
+function shouldIgnoreEntry(dirent: fs.Dirent, ignorePatterns: string[]): boolean {
+    return ignorePatterns.some((pattern: string) => {
+        if (dirent.isDirectory()) {
+            return pattern === dirent.name || (pattern.endsWith('/') && pattern.slice(0, -1) === dirent.name);
+        } else if (dirent.isFile()) {
+            return pattern === dirent.name;
+        }
+        return false;
+    });
 }
 
 function read_file(filePath: string): string {
@@ -178,9 +198,10 @@ function getGitIgnorePatterns(dirPath: string): string[] {
         const content = fs.readFileSync(gitignorePath, 'utf-8');
         return content.split('\n')
                       .map(line => line.trim())
-                      .filter(line => line.length > 0 && !line.startsWith('#'));
+                      .filter(line => line.length > 0 && !line.startsWith('#'))
+                      .concat('..');
     }
-    return [];
+    return ['..'];
 }
 
 async function search_files(dirPath: string, regex: string, recursive: boolean = false): Promise<string> {
@@ -198,26 +219,7 @@ async function search_files(dirPath: string, regex: string, recursive: boolean =
             const fullPath = path.resolve(absoluteDirPath, dirent.name);
             const relativePath = path.relative(process.cwd(), fullPath);
 
-            if (dirent.name === '.' || dirent.name === '..') {
-                continue;
-            }
-            if (dirent.isDirectory() && dirent.name.startsWith('.')) {
-                continue;
-            }
-
-            // New check for .gitignore patterns
-            const shouldIgnore = ignorePatterns.some((pattern: string) => {
-                // Basic check: exact match for directory name or pattern ending with /
-                if (dirent.isDirectory()) {
-                    if (pattern === dirent.name || (pattern.endsWith('/') && pattern.slice(0, -1) === dirent.name)) {
-                        return true;
-                    }
-                }
-                // For files, a more complex glob matching would be needed, but the request was for directories.
-                return false;
-            });
-
-            if (shouldIgnore) {
+            if (shouldIgnoreEntry(dirent, ignorePatterns)) {
                 continue;
             }
 
@@ -265,24 +267,7 @@ async function list_code_definitions(dirPath: string, recursive: boolean = false
             const fullPath = path.resolve(absoluteDirPath, dirent.name);
             const relativePath = path.relative(process.cwd(), fullPath);
 
-            if (dirent.name === '.' || dirent.name === '..') {
-                continue;
-            }
-            if (dirent.isDirectory() && dirent.name.startsWith('.')) {
-                continue;
-            }
-
-            const shouldIgnore = ignorePatterns.some((pattern: string) => {
-                if (dirent.isDirectory()) {
-                    return pattern === dirent.name || (pattern.endsWith('/') && pattern.slice(0, -1) === dirent.name);
-                } else if (dirent.isFile()) {
-                    // Basic file ignore: check if filename matches pattern
-                    return pattern === dirent.name;
-                }
-                return false;
-            });
-
-            if (shouldIgnore) {
+            if (shouldIgnoreEntry(dirent, ignorePatterns)) {
                 continue;
             }
 
