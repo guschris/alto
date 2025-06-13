@@ -3,6 +3,7 @@ import { createInterface } from 'readline';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { altoSystemPrompt } from './system';
+import { extractCommand, runCommand } from './commands';
 
 interface OpenAIConfig {
   apiKey: string;
@@ -110,9 +111,7 @@ async function listOpenAIModels() {
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`
-      }
+      headers: { 'Authorization': `Bearer ${apiKey}` }
     });
 
     if (!response.ok) {
@@ -173,7 +172,7 @@ async function fetchContextWindowSize(): Promise<number | null> {
  * This function manages the display of reasoning content, regular content, and performance metrics.
  * @param stream An asynchronous generator yielding data chunks from the chat completion.
  */
-async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
+async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<string> {
   let isStreamingThinking = false;
   let assistantResponseContent = ''; // Accumulate assistant's content for chat history
   const GREY_COLOR = '\x1b[90m'; // Dark grey
@@ -246,7 +245,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
   }
 
   if (isStreamingThinking) { // Ensure a newline and reset if thinking ended right before stream finished
-    process.stdout.write(RESET_COLOR + '\n');
+    process.stderr.write(RESET_COLOR);
   }
   process.stdout.write('\n'); // Newline after the streamed response
 
@@ -266,12 +265,19 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
   if (assistantResponseContent.length > 0) {
     chatHistory.push({ role: 'assistant', content: assistantResponseContent });
   }
+  return assistantResponseContent;
 }
 
 async function chat(input: string) {
-    chatHistory.push({ role: 'user', content: input });
-    const chatStream = chatWithOpenAI(chatHistory);
-    await handleChatStreamOutput(chatStream);
+  chatHistory.push({ role: 'user', content: input });
+  while (true) {
+      const chatStream = chatWithOpenAI(chatHistory);
+      const response = await handleChatStreamOutput(chatStream);
+      const commandXml = extractCommand(response);
+      if (!commandXml) break;
+      const commandResponse = await runCommand(commandXml);
+      chatHistory.push({ role: 'system', content: commandResponse });
+  }
 }
 
 function clearChatHistory() {
