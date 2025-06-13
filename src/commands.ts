@@ -105,7 +105,7 @@ export async function runCommand(commandXml: string): Promise<string> {
 async function list_files(dirPath: string, recursive: boolean = false): Promise<string> {
     let files: string[] = [];
     const absoluteDirPath = path.resolve(process.cwd(), dirPath);
-    const ignorePatterns = getGitIgnorePatterns(absoluteDirPath);
+    const ignorePatterns = getIgnoredPatterns(absoluteDirPath);
 
     try {
         const dirents = await fsp.readdir(absoluteDirPath, { withFileTypes: true });
@@ -192,16 +192,17 @@ async function execute_command(command: string, safe: boolean): Promise<string> 
     }
 }
 
-function getGitIgnorePatterns(dirPath: string): string[] {
+function getIgnoredPatterns(dirPath: string): string[] {
+    const ignored = ['..', '.git'];
     const gitignorePath = path.join(dirPath, '.gitignore');
     if (fs.existsSync(gitignorePath)) {
         const content = fs.readFileSync(gitignorePath, 'utf-8');
         return content.split('\n')
                       .map(line => line.trim())
                       .filter(line => line.length > 0 && !line.startsWith('#'))
-                      .concat('..');
+                      .concat(...ignored);
     }
-    return ['..'];
+    return ignored;
 }
 
 async function search_files(dirPath: string, regex: string, recursive: boolean = false): Promise<string> {
@@ -210,7 +211,7 @@ async function search_files(dirPath: string, regex: string, recursive: boolean =
     const absoluteDirPath = path.resolve(process.cwd(), dirPath);
     const searchRegex = new RegExp(regex, 'g');
 
-    const ignorePatterns = getGitIgnorePatterns(absoluteDirPath);
+    const ignorePatterns = getIgnoredPatterns(absoluteDirPath);
 
     try {
         const dirents = await fsp.readdir(absoluteDirPath, { withFileTypes: true });
@@ -258,7 +259,7 @@ async function search_files(dirPath: string, regex: string, recursive: boolean =
 async function list_code_definitions(dirPath: string, recursive: boolean = false): Promise<string> {
     let definitions: string[] = [];
     const absoluteDirPath = path.resolve(process.cwd(), dirPath);
-    const ignorePatterns = getGitIgnorePatterns(absoluteDirPath);
+    const ignorePatterns = getIgnoredPatterns(absoluteDirPath);
 
     try {
         const dirents = await fsp.readdir(absoluteDirPath, { withFileTypes: true });
