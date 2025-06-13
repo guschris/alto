@@ -2,6 +2,7 @@
 import { createInterface } from 'readline';
 import { readFileSync } from 'fs';
 import path from 'path';
+import { altoSystemPrompt } from './system';
 
 interface OpenAIConfig {
   apiKey: string;
@@ -11,6 +12,7 @@ interface OpenAIConfig {
 
 interface Config {
   openai: OpenAIConfig;
+  tools?: [ { type: "function", function: { name: string, description: string, parameters: any, strict: boolean } } ]
 }
 
 interface ChatMessage {
@@ -20,7 +22,7 @@ interface ChatMessage {
 
 let config: Config;
 let chatHistory: ChatMessage[] = [];
-let systemPrompt: string | null = null; // Variable to store the system prompt
+let systemPrompt: string | null = altoSystemPrompt();
 
 try {
   const configPath = path.join(__dirname, '..', 'config.json');
@@ -42,17 +44,23 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
   const url = `${baseUrl}/chat/completions`;
 
   try {
+    const msg: any = {
+      model: model,
+      messages: messages,
+      stream: true
+    };
+    if (config.tools?.length) {
+      msg.tools = config.tools;
+      msg.tool_choice = "auto";
+    }
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: model,
-        messages: messages,
-        stream: true
-      })
+      body: JSON.stringify(msg)
     });
 
     if (!response.ok) {
@@ -97,9 +105,6 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
   }
 }
 
-/**
- * Fetches and lists available models from the OpenAI API.
- */
 /**
  * Fetches and lists available models from the OpenAI API.
  */
@@ -177,47 +182,120 @@ async function fetchContextWindowSize(): Promise<number | null> {
  */
 async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
   let isStreamingThinking = false;
-  let assistantResponseContent = ''; // Accumulate assistant's content
+  let assistantResponseContent = ''; // Accumulate assistant's content for chat history
   const GREY_COLOR = '\x1b[90m'; // Dark grey
   const RESET_COLOR = '\x1b[0m'; // Reset color
 
-  for await (const data of stream) {
-    const reasoningContent = data.choices[0]?.delta?.reasoning_content;
-    const content = data.choices[0]?.delta?.content;
-    const finishReason = data.choices[0]?.finish_reason;
+  let mergedResponse: any = {
+    choices: [],
+    usage: {},
+    timings: {}
+  };
 
-    if (reasoningContent) {
-      if (!isStreamingThinking) {
-        process.stdout.write(GREY_COLOR + 'THINKING: ');
-        isStreamingThinking = true;
-      }
-      process.stdout.write(reasoningContent);
-    } else {
-      if (isStreamingThinking) {
-        process.stdout.write(RESET_COLOR + '\n');
-        isStreamingThinking = false;
-      }
-      if (content) {
-        process.stdout.write(content);
-        assistantResponseContent += content; // Accumulate content
-      }
+  for await (const data of stream) {
+    // Accumulate usage and timings from the last chunk (usually contains final values)
+    if (data.usage) {
+      mergedResponse.usage = data.usage;
+    }
+    if (data.timings) {
+      mergedResponse.timings = data.timings;
     }
 
-    if (finishReason === 'stop') {
+    if (data.choices) {
+      data.choices.forEach((chunkChoice: any) => {
+        const choiceIndex = chunkChoice.index;
+        // Find or create the corresponding choice in mergedResponse
+        let mergedChoice = mergedResponse.choices[choiceIndex];
+        if (!mergedChoice) {
+          mergedChoice = { index: choiceIndex, delta: {}, finish_reason: null };
+          mergedResponse.choices[choiceIndex] = mergedChoice;
+        }
+
+        // Merge delta properties for final output/history
+        if (chunkChoice.delta) {
+          const delta = chunkChoice.delta;
+
+          // Stream content and reasoning_content immediately
+          if (delta.reasoning_content) {
+            if (!isStreamingThinking) {
+              process.stdout.write(GREY_COLOR + 'THINKING: ');
+              isStreamingThinking = true;
+            }
+            process.stdout.write(delta.reasoning_content);
+            mergedChoice.delta.reasoning_content = (mergedChoice.delta.reasoning_content || '') + delta.reasoning_content;
+          } else {
+            if (isStreamingThinking) {
+              process.stdout.write(RESET_COLOR + '\n');
+              isStreamingThinking = false;
+            }
+            if (delta.content) {
+              process.stdout.write(delta.content);
+              assistantResponseContent += delta.content; // Accumulate for chat history
+              mergedChoice.delta.content = (mergedChoice.delta.content || '') + delta.content;
+            }
+          }
+
+          // Merge tool_calls for final output
+          if (delta.tool_calls) {
+            if (!mergedChoice.delta.tool_calls) {
+              mergedChoice.delta.tool_calls = [];
+            }
+            delta.tool_calls.forEach((toolCallChunk: any) => {
+              const toolCallIndex = toolCallChunk.index;
+              let mergedToolCall = mergedChoice.delta.tool_calls[toolCallIndex];
+
+              if (!mergedToolCall) {
+                mergedToolCall = { id: toolCallChunk.id, type: toolCallChunk.type, function: { name: toolCallChunk.function?.name || '', arguments: '' } };
+                mergedChoice.delta.tool_calls[toolCallIndex] = mergedToolCall;
+              }
+
+              // Concatenate arguments
+              if (toolCallChunk.function?.arguments) {
+                mergedToolCall.function.arguments += toolCallChunk.function.arguments;
+              }
+            });
+          }
+        }
+
+        // Store finish_reason
+        if (chunkChoice.finish_reason) {
+          mergedChoice.finish_reason = chunkChoice.finish_reason;
+        }
+      });
+    }
+
+    // Check for stream end based on the first choice's finish_reason
+    // This assumes all choices finish around the same time or we only care about the first one for stream termination.
+    // If multiple choices can finish at different times, this logic might need adjustment.
+    if (data.choices[0]?.finish_reason === 'stop' || data.choices[0]?.finish_reason === 'tool_calls') {
       if (isStreamingThinking) {
         process.stdout.write(RESET_COLOR + '\n');
         isStreamingThinking = false;
       }
-      const { usage, timings } = data;
-      if (usage && timings) {
+      // Display tool calls if any, from the merged response
+      mergedResponse.choices.forEach((choice: any) => {
+        if (choice.delta.tool_calls && choice.delta.tool_calls.length > 0) {
+          process.stdout.write('\n' + GREY_COLOR + 'TOOL CALLS:\n');
+          choice.delta.tool_calls.forEach((toolCall: any) => {
+            process.stdout.write(`  ID: ${toolCall.id}\n`);
+            process.stdout.write(`  Type: ${toolCall.type}\n`);
+            process.stdout.write(`  Function Name: ${toolCall.function.name}\n`);
+            process.stdout.write(`  Arguments: ${toolCall.function.arguments}\n`);
+          });
+          process.stdout.write(RESET_COLOR);
+        }
+      });
+
+      // Display usage and timings
+      if (mergedResponse.usage && mergedResponse.timings) {
         process.stdout.write(GREY_COLOR);
-        let outputString = `\nTotal Tokens: ${usage.total_tokens}`;
+        let outputString = `\nTotal Tokens: ${mergedResponse.usage.total_tokens}`;
         if (contextWindowSize !== null) {
-          const percentUsed = ((usage.total_tokens / contextWindowSize) * 100).toFixed(2);
+          const percentUsed = ((mergedResponse.usage.total_tokens / contextWindowSize) * 100).toFixed(2);
           outputString += ` / ${contextWindowSize} (${percentUsed}%)`;
         }
-        outputString += ` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)}`;
-        outputString += ` | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}\n`;
+        outputString += ` | Prompt PPS: ${mergedResponse.timings.prompt_per_second.toFixed(2)}`;
+        outputString += ` | Predicted PPS: ${mergedResponse.timings.predicted_per_second.toFixed(2)}\n`;
         process.stdout.write(outputString);
         process.stdout.write(RESET_COLOR);
       }
