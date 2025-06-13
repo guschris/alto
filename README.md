@@ -19,13 +19,13 @@ Simply type your questions, problems, or instructions. The AI will respond, ofte
 
 ```
 Alto
-Type "/help" for available commands. Enter multi-line prompts and type "/go" to submit.
+Type "/help" for available commands. Enter multi-line prompts and type "/go" or an empty line to submit.
 > I'm trying to debug a React component. Can you help me understand why this state isn't updating?
 ```
 
 ### Multi-line Prompts for Detailed Context
 
-For complex problems or when providing extensive code, use multi-line input. Type your prompt across multiple lines, and to submit, type `/go` on a new line.
+For complex problems or when providing extensive code, use multi-line input. Type your prompt across multiple lines, and to submit, type `/go` on a new line, or simply press Enter twice (submit an empty line).
 
 ```
 > Here's the component code:
@@ -63,7 +63,7 @@ The CLI supports several built-in commands that enhance the pair programming exp
     *   Example: `/system You are a helpful Python programming assistant.`
 *   `/<filename>`: Share the content of a file from the `scripts/` directory directly with the AI. Useful for providing context or instructions from pre-written files.
     *   Example: `/commit` (submits content from `scripts/commit.md`) creates a Git commit message from the changes in your working directory.
-*   `/go`: Submits the accumulated multi-line prompt.
+*   `/go`: Submits the accumulated multi-line prompt. (Alternatively, submit an empty line by pressing Enter twice.)
 
 ### AI's Autonomous Problem Solving
 

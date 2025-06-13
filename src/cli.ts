@@ -389,7 +389,7 @@ async function main() { // Make main async
   });
 
   console.log('Alto - pair programming AI is ready!');
-  console.log('Type "/help" for available commands. Enter multi-line prompts and type "/go" to submit.');
+  console.log('Type "/help" for available commands. Enter multi-line prompts and type "/go" or an empty line to submit.');
 
   contextWindowSize = await fetchContextWindowSize(); // Fetch context window size at startup
   clearChatHistory(); // setup the system prompt
@@ -436,8 +436,14 @@ async function main() { // Make main async
           const fileName = trimmedInput.substring(1); // Remove the leading '/'
           await handleFileCommand(fileName);
         } else {
-          // If it's not a command, it's part of the multi-line prompt
-          currentMultiLinePrompt += (currentMultiLinePrompt.length > 0 ? '\n' : '') + input;
+          // If it's an empty line and there's content in the multi-line prompt, submit it
+          if (trimmedInput.length === 0 && currentMultiLinePrompt.trim().length > 0) {
+            await chat(currentMultiLinePrompt.trim());
+            currentMultiLinePrompt = ''; // Reset after submission
+          } else {
+            // Otherwise, it's part of the multi-line prompt
+            currentMultiLinePrompt += (currentMultiLinePrompt.length > 0 ? '\n' : '') + input;
+          }
         }
         break;
     }
