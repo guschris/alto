@@ -1,9 +1,15 @@
 // src/cli.ts
 import { createInterface } from 'readline';
 import { readFileSync, promises as fsPromises } from 'fs'; // Import promises
-import path from 'path';
-import { altoSystemPrompt } from './system';
+import * as path from 'path';
 import { extractCommand, runCommand } from './commands';
+
+function altoSystemPrompt(): string {
+    const promptPath = path.join(__dirname, 'scripts', 'system-prompt');
+    const promptContent = readFileSync(promptPath, 'utf8');
+    process.stderr.write(`\x1b[90mSystem prompt loaded from: ${promptPath}\x1b[0m\n`); // Grey color for system messages
+    return promptContent;
+}
 
 interface OpenAIConfig {
   apiKey: string;
@@ -389,7 +395,7 @@ async function main() { // Make main async
  * @param fileName The name of the file (without path or extension) to read from src/scripts.
  */
 async function handleFileCommand(fileName: string) {
-  const scriptDir = path.join(__dirname, '..', 'scripts'); // Corrected path for moved scripts folder
+  const scriptDir = path.join(__dirname, 'scripts');
   const possibleExtensions = ['.md', '.txt'];
   let filePath = '';
   let fileFound = false;

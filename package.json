@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "prebuild": "mkdir -p dist/scripts && cp -R scripts/* dist/scripts/",
     "build": "tsc",
     "start": "node dist/cli.js",
     "test": "echo \"Error: no test specified\" && exit 1"
