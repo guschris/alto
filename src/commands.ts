@@ -1,5 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises'; // Import fs.promises
 import * as path from 'path';
 import { exec } from 'child_process';
 
@@ -47,6 +48,13 @@ const languageDefinitions: { [key: string]: { type: string, regex: RegExp }[] } 
     '.zig': [
         { type: 'function', regex: /fn\s+([a-zA-Z_][0-9a-zA-Z_]*)\s*\(.*?\)\s*/ },
         { type: 'struct', regex: /pub\s+const\s+([a-zA-Z_][0-9a-zA-Z_]*)\s*=\s*struct\s*{/ },
+    ],
+    '.rs': [
+        { type: 'function', regex: /fn\s+([a-zA-Z_][0-9a-zA-Z_]*)\s*\(.*?\)\s*(?:->\s*.*?)?\s*{/ },
+        { type: 'struct', regex: /struct\s+([a-zA-Z_][0-9a-zA-Z_]*)(?:\s*<.*?>)?\s*{/ },
+        { type: 'enum', regex: /enum\s+([a-zA-Z_][0-9a-zA-Z_]*)(?:\s*<.*?>)?\s*{/ },
+        { type: 'trait', regex: /trait\s+([a-zA-Z_][0-9a-zA-Z_]*)(?:\s*<.*?>)?\s*{/ },
+        { type: 'impl for', regex: /impl(?:\s*<.*?>)?\s*(?:[a-zA-Z_][0-9a-zA-Z_]*)?\s*for\s+([a-zA-Z_][0-9a-zA-Z_]*)(?:\s*<.*?>)?\s*{/ },
     ],
 };
 
@@ -170,7 +178,7 @@ function getGitIgnorePatterns(dirPath: string): string[] {
     return [];
 }
 
-function search_files(dirPath: string, regex: string, recursive: boolean = false): string {
+async function search_files(dirPath: string, regex: string, recursive: boolean = false): Promise<string> {
     if (!regex) return "ERROR: no rexexp provided";
     let results: string[] = [];
     const absoluteDirPath = path.resolve(process.cwd(), dirPath);
@@ -179,12 +187,15 @@ function search_files(dirPath: string, regex: string, recursive: boolean = false
     const ignorePatterns = getGitIgnorePatterns(absoluteDirPath);
 
     try {
-        const dirents = fs.readdirSync(absoluteDirPath, { withFileTypes: true });
+        const dirents = await fsp.readdir(absoluteDirPath, { withFileTypes: true });
 
         for (const dirent of dirents) {
             const fullPath = path.resolve(absoluteDirPath, dirent.name);
             const relativePath = path.relative(process.cwd(), fullPath);
 
+            if (dirent.name === '.' || dirent.name === '..') {
+                continue;
+            }
             if (dirent.isDirectory() && dirent.name.startsWith('.')) {
                 continue;
             }
@@ -207,11 +218,14 @@ function search_files(dirPath: string, regex: string, recursive: boolean = false
 
             if (dirent.isDirectory()) {
                 if (recursive) {
-                    results = results.concat(search_files(relativePath, regex, true));
+                    const subResults = await search_files(relativePath, regex, true);
+                    if (subResults !== '(no files)' && !subResults.startsWith('ERROR:')) {
+                        results = results.concat(subResults.split('\n'));
+                    }
                 }
             } else if (dirent.isFile()) {
                 try {
-                    const content = fs.readFileSync(fullPath, 'utf-8');
+                    const content = await fsp.readFile(fullPath, 'utf-8');
                     let match;
                     while ((match = searchRegex.exec(content)) !== null) {
                         const lineStart = content.lastIndexOf('\n', match.index) + 1;
@@ -234,13 +248,13 @@ function search_files(dirPath: string, regex: string, recursive: boolean = false
     return results.join('\n');
 }
 
-function list_code_definitions(dirPath: string, recursive: boolean = false): string {
+async function list_code_definitions(dirPath: string, recursive: boolean = false): Promise<string> {
     let definitions: string[] = [];
     const absoluteDirPath = path.resolve(process.cwd(), dirPath);
     const ignorePatterns = getGitIgnorePatterns(absoluteDirPath);
 
     try {
-        const dirents = fs.readdirSync(absoluteDirPath, { withFileTypes: true });
+        const dirents = await fsp.readdir(absoluteDirPath, { withFileTypes: true });
 
         for (const dirent of dirents) {
             const fullPath = path.resolve(absoluteDirPath, dirent.name);
@@ -269,7 +283,10 @@ function list_code_definitions(dirPath: string, recursive: boolean = false): str
 
             if (dirent.isDirectory()) {
                 if (recursive) {
-                    definitions = definitions.concat(list_code_definitions(relativePath, true));
+                    const subDefinitions = await list_code_definitions(relativePath, true);
+                    if (subDefinitions !== '(no files)' && !subDefinitions.startsWith('ERROR:')) {
+                        definitions = definitions.concat(subDefinitions.split('\n'));
+                    }
                 }
             } else if (dirent.isFile()) {
                 const fileExtension = path.extname(dirent.name).toLowerCase();
@@ -277,7 +294,7 @@ function list_code_definitions(dirPath: string, recursive: boolean = false): str
 
                 if (definitionsForLanguage) { // Check if we have patterns for this language
                     try {
-                        const content = fs.readFileSync(fullPath, 'utf-8');
+                        const content = await fsp.readFile(fullPath, 'utf-8');
                         const lines = content.split('\n');
 
                         lines.forEach((line, index) => {
