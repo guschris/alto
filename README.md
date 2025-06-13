@@ -1,4 +1,4 @@
-# AI Pair Programming Assistant CLI
+# Alto
 
 This is a command-line interface (CLI) tool designed to act as your **AI pair programming assistant**, leveraging OpenAI's API to provide an interactive and highly capable coding partner directly in your terminal. It's built to streamline your development workflow by collaborating on tasks, answering questions, executing commands, and managing context, just like a human pair programmer.
 
@@ -17,7 +17,7 @@ This is a command-line interface (CLI) tool designed to act as your **AI pair pr
 Simply type your questions, problems, or instructions. The AI will respond, often by suggesting solutions, providing code, or even executing commands to help you.
 
 ```
-AI Coding Assistant CLI
+Alto
 Type "/help" for available commands. Enter multi-line prompts and type "/go" to submit.
 > I'm trying to debug a React component. Can you help me understand why this state isn't updating?
 ```
@@ -114,7 +114,7 @@ To start your AI pair programming session:
 npm run start
 ```
 
-Once started, you will see the prompt: `AI Coding Assistant CLI`.
+Once started, you will see the prompt: `Alto`.
 
 ## Contributing
 

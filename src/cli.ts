@@ -328,7 +328,7 @@ async function main() { // Make main async
     output: process.stdout
   });
 
-  console.log('AI Coding Assistant CLI');
+  console.log('Alto - pair programming AI is ready!');
   console.log('Type "/help" for available commands. Enter multi-line prompts and type "/go" to submit.');
 
   contextWindowSize = await fetchContextWindowSize(); // Fetch context window size at startup
