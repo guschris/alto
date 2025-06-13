@@ -303,7 +303,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
 }
 
 function displayUsageAndTimings(usage: any, timings: any) {
-  if (usage && timings) {
+  if (usage && usage.total_tokens) {
     const THINKING_COLOR = '\x1b[90m'; // Define locally for this function
     const RESET_COLOR = '\x1b[0m';
     let outputString = `\n${THINKING_COLOR}Total Tokens: ${usage.total_tokens}`;
@@ -311,8 +311,10 @@ function displayUsageAndTimings(usage: any, timings: any) {
       const percentUsed = ((usage.total_tokens / contextWindowSize) * 100).toFixed(2);
       outputString += ` / ${contextWindowSize} (${percentUsed}%)`;
     }
-    if (timings.prompt_per_second) outputString += ` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)}`;
-    if (timings.predicted_per_second) outputString += ` | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}${RESET_COLOR}\n`;
+    if (timings) {
+      if (timings.prompt_per_second) outputString += ` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)}`;
+      if (timings.predicted_per_second) outputString += ` | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}${RESET_COLOR}\n`;
+    }
     process.stdout.write(outputString);
   }
 }
