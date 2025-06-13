@@ -103,7 +103,7 @@ export async function runCommand(commandXml: string): Promise<string> {
     } else if (obj.list_code_definitions) {
         return list_code_definitions(obj.list_code_definitions.path, obj.list_code_definitions.recursive);
     } else if (obj.replace_in_file) {
-        return replace_in_file(obj.replace_in_file.path, obj.replace_in_file.find, obj.replace_in_file.replace);
+        return replace_in_file(obj.replace_in_file.path, obj.replace_in_file.diff);
     } else {
         return `ERROR: unknown tool`;
     }
@@ -337,19 +337,46 @@ async function list_code_definitions(dirPath: string, recursive: boolean = false
     return JSON.stringify(definitions);
 }
 
-async function replace_in_file(filePath: string, find: string, replace: string): Promise<string> {
+async function replace_in_file(filePath: string, diff: string): Promise<string> {
+    const SEARCH_MARKER = '------- SEARCH';
+    const SEPARATOR_MARKER = '=======';
+    const REPLACE_MARKER = '+++++++ REPLACE';
+
     try {
         const absolutePath = path.resolve(process.cwd(), filePath);
         let content = await fsp.readFile(absolutePath, 'utf-8');
+        let modifiedCount = 0;
 
-        const idx = content.indexOf(find);
-        if (idx < 0) {
-            return `ERROR: No match found in file ${filePath}`;
+        const blocks = diff.split(SEARCH_MARKER).filter(block => block.trim() !== '');
+
+        for (const block of blocks) {
+            const parts = block.split(SEPARATOR_MARKER);
+            if (parts.length !== 2) {
+                return `ERROR: Malformed diff block: missing separator in block "${block.substring(0, 50)}..."`;
+            }
+
+            let [searchContent, replaceBlock] = parts;
+
+            if (!replaceBlock.startsWith('\n' + REPLACE_MARKER + '\n')) {
+                return `ERROR: Malformed diff block: missing REPLACE marker in block "${block.substring(0, 50)}..."`;
+            }
+            replaceBlock = replaceBlock.substring(REPLACE_MARKER.length + 2); // Remove marker and newlines
+
+            const find = searchContent.trim();
+            const replace = replaceBlock.trim();
+
+            const idx = content.indexOf(find);
+            if (idx < 0) {
+                // If a search string is not found, it's an error according to the prompt
+                return `ERROR: No match found for search block "${find.substring(0, 50)}..." in file ${filePath}`;
+            }
+
+            content = content.slice(0, idx) + replace + content.slice(idx + find.length);
+            modifiedCount++;
         }
 
-        content = content.slice(0, idx) + replace + content.slice(idx + find.length);
         await fsp.writeFile(absolutePath, content, 'utf-8');
-        return `File modified successfully: ${filePath}`;
+        return `File modified successfully: ${filePath}. Applied ${modifiedCount} replacements.`;
     } catch (error: any) {
         if (error.code === 'ENOENT') {
             return `ERROR: File not found at ${filePath}`;
