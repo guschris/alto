@@ -177,7 +177,7 @@ async function fetchContextWindowSize(): Promise<number | null> {
 /**
  * Handles the asynchronous stream of chat completion data and outputs it to the console.
  * This function manages the display of reasoning content, regular content, and performance metrics.
- * @param stream An asynchronous generator yielding data chunks from the chat completion.
+ * @param stream An asynchronous generator yielding data chunks as they are received.
  */
 async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<string> {
   let isStreamingThinking = false;
@@ -406,9 +406,6 @@ async function main() { // Make main async
       case '/help':
         showHelp();
         break;
-      case lowercasedInput.startsWith('/system ') ? lowercasedInput : '': // Handle /system command
-        setSystemPrompt(input);
-        break;
       case '/models':
         console.log('Fetching available models...');
         await listOpenAIModels();
@@ -432,7 +429,10 @@ async function main() { // Make main async
         console.log('To permanently change the default system prompt, edit the file scripts/system-prompt.md directly.');
         break;
       default:
-        if (lowercasedInput.startsWith('/')) {
+        // Handle /system command explicitly here
+        if (lowercasedInput.startsWith('/system ')) {
+          setSystemPrompt(input);
+        } else if (lowercasedInput.startsWith('/')) {
           const fileName = trimmedInput.substring(1); // Remove the leading '/'
           await handleFileCommand(fileName);
         } else {

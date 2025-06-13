@@ -18,7 +18,6 @@ Each command invocation message adheres to a strict XML format:
     ...
     </command_name>
 * All necessary parameters for the specific command are nested as individual XML elements within the command's main opening and closing tags.
-* Crucially, all file and directory paths specified in command parameters are relative to the current working directory where the user is operating.
 
 ---
 
@@ -42,6 +41,8 @@ Your actual chat response to the user, incorporating this command call, would ap
 ---
 
 ## Available Commands:
+
+All file and directory paths specified in command parameters must be relative to the current working directory where the user is operating.
 
 1.  `read_file`
     * **Description:** This command allows you to retrieve and view the entire content of any specified source code file, configuration file, or other text-based document within the user's environment. It's essential for understanding existing code, checking configurations, or debugging.
