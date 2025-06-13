@@ -343,6 +343,42 @@ function setSystemPrompt(input: string) {
   }
 }
 
+
+/**
+ * Handles commands to submit content from a file.
+ * @param fileName The name of the file (without path or extension) to read from src/scripts.
+ */
+async function handleFileCommand(fileName: string) {
+  const scriptDir = path.join(__dirname, 'scripts');
+  const possibleExtensions = ['.md', '.txt'];
+  let filePath = '';
+  let fileFound = false;
+
+  for (const ext of possibleExtensions) {
+    const potentialPath = path.join(scriptDir, fileName + ext);
+    try {
+      await fsPromises.access(potentialPath, fsPromises.constants.R_OK);
+      filePath = potentialPath;
+      fileFound = true;
+      break;
+    } catch (e) {
+      // File not found or not readable, try next extension
+    }
+  }
+
+  if (fileFound) {
+    try {
+      const fileContent = await fsPromises.readFile(filePath, 'utf-8');
+      console.log(`Submitting content from ${filePath}...`);
+      await chat(fileContent);
+    } catch (error) {
+      console.error(`Error reading file ${filePath}:`, error);
+    }
+  } else {
+    console.log(`File "${fileName}" not found in src/scripts with .md or .txt extension.`);
+  }
+}
+
 /**
  * Main function to initialize the CLI, load configuration, and handle user input.
  */
@@ -409,41 +445,6 @@ async function main() { // Make main async
 
   // This part will only be reached if rl.close() is called, e.g., by /exit
   process.exit(0);
-}
-
-/**
- * Handles commands to submit content from a file.
- * @param fileName The name of the file (without path or extension) to read from src/scripts.
- */
-async function handleFileCommand(fileName: string) {
-  const scriptDir = path.join(__dirname, 'scripts');
-  const possibleExtensions = ['.md', '.txt'];
-  let filePath = '';
-  let fileFound = false;
-
-  for (const ext of possibleExtensions) {
-    const potentialPath = path.join(scriptDir, fileName + ext);
-    try {
-      await fsPromises.access(potentialPath, fsPromises.constants.R_OK);
-      filePath = potentialPath;
-      fileFound = true;
-      break;
-    } catch (e) {
-      // File not found or not readable, try next extension
-    }
-  }
-
-  if (fileFound) {
-    try {
-      const fileContent = await fsPromises.readFile(filePath, 'utf-8');
-      console.log(`Submitting content from ${filePath}...`);
-      await chat(fileContent);
-    } catch (error) {
-      console.error(`Error reading file ${filePath}:`, error);
-    }
-  } else {
-    console.log(`File "${fileName}" not found in src/scripts with .md or .txt extension.`);
-  }
 }
 
 main();
