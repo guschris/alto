@@ -276,6 +276,7 @@ async function chat(input: string) {
       const commandXml = extractCommand(response);
       if (!commandXml) break;
       const commandResponse = await runCommand(commandXml);
+      console.error(commandResponse); // for debugging
       chatHistory.push({ role: 'system', content: commandResponse });
   }
 }

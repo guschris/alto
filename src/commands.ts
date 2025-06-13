@@ -76,7 +76,7 @@ export async function runCommand(commandXml: string): Promise<string> {
     const parser = new XMLParser({ ignoreAttributes: true });
     const obj = parser.parse(commandXml);
 
-    if (obj.list_file) {
+    if (obj.list_files) {
         return list_files(obj.list_files.path, obj.list_files.recursive);
     } else if (obj.read_file) {
         return read_file(obj.read_file.path);
