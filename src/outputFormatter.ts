@@ -32,23 +32,25 @@ export class StreamOutputFormatter {
 
     this.buffer += chunk;
 
-    let loopAgain = true;
-    while (loopAgain) {
-      loopAgain = false;
+    while (this.buffer.length > 0) {
       if (!this.isInsideCommand) {
         const commandName = isCommandStartTag(this.buffer);
         if (commandName) {
-          const startTagIndex = this.buffer.indexOf(`<${commandName}>`);
-          const textBefore = this.buffer.substring(0, startTagIndex);
-          process.stdout.write(textBefore);
-
-          this.buffer = this.buffer.substring(startTagIndex);
-
+          const startTag = `<${commandName}>`;
+          const startTagIndex = this.buffer.indexOf(startTag);
+          
+          // Write content before the start tag
+          if (startTagIndex > 0) {
+            process.stdout.write(this.buffer.substring(0, startTagIndex));
+          }
+          
+          // Switch to command color and write the start tag
+          process.stdout.write(COMMAND_XML_COLOR + startTag);
           this.isInsideCommand = true;
           this.currentCommand = commandName;
-          process.stdout.write(COMMAND_XML_COLOR);
-          loopAgain = true;
+          this.buffer = this.buffer.substring(startTagIndex + startTag.length);
         } else {
+          // No start tag found, write all content up to the last potential start of a tag
           const lastBracket = this.buffer.lastIndexOf('<');
           if (lastBracket === -1) {
             process.stdout.write(this.buffer);
@@ -57,20 +59,26 @@ export class StreamOutputFormatter {
             process.stdout.write(this.buffer.substring(0, lastBracket));
             this.buffer = this.buffer.substring(lastBracket);
           }
+          break; // Wait for more chunks if no full tag or text to write
         }
       } else { // isInsideCommand
         const endTag = `</${this.currentCommand}>`;
-        if (this.buffer.includes(endTag)) {
-          const endTagIndex = this.buffer.indexOf(endTag) + endTag.length;
-          const commandText = this.buffer.substring(0, endTagIndex);
-          process.stdout.write(commandText);
+        const endTagIndex = this.buffer.indexOf(endTag);
 
-          this.buffer = this.buffer.substring(endTagIndex);
-
+        if (endTagIndex !== -1) {
+          // Write content up to and including the end tag
+          process.stdout.write(this.buffer.substring(0, endTagIndex + endTag.length));
+          this.buffer = this.buffer.substring(endTagIndex + endTag.length);
+          
+          // Reset color and state
+          process.stdout.write(RESET_COLOR);
           this.isInsideCommand = false;
           this.currentCommand = '';
-          process.stdout.write(RESET_COLOR);
-          loopAgain = true;
+        } else {
+          // End tag not found yet, write the entire buffer (content within command)
+          process.stdout.write(this.buffer);
+          this.buffer = '';
+          break; // Wait for more chunks
         }
       }
     }

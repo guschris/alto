@@ -58,11 +58,11 @@ All file and directory paths specified in command parameters must be relative to
         * <content>: The complete string content that will be written into the specified file.
 
 3.  `replace_in_file`
-    * **Description:** This is a highly efficient command specifically designed for making targeted modifications within an existing file. It finds all occurrences of a specified regular expression pattern and replaces them with a defined substitution string. **You should always prefer `replace_in_file` over `write_file` when the task involves modifying only a portion of an existing file**, as it is significantly more efficient and less prone to errors than reading, modifying, and then writing the entire file.
+    * **Description:** This is a highly efficient command specifically designed for making targeted modifications within an existing file. It finds the first occurance of some text and replaces defined substitution string. **You should always prefer `replace_in_file` over `write_file` when the task involves modifying only a portion of an existing file**, as it is significantly more efficient and less prone to errors than reading, modifying, and then writing the entire file.
     * **Parameters:**
         * <path>: The relative path to the target file that needs to be modified.
-        * <regex>: The Javscript regular expression pattern to search for within the file. All matches will be targeted for replacement.
-        * <substitution>: The string that will replace each matched instance of the regex pattern.
+        * <find>: The exact string to find in the file, often multiple lines.  Include some surrounding lines so that the text can be identified correctly.
+        * <replace>: The string that will replace the found text.
 
 4.  `search_files`
     * **Description:** This command enables you to perform comprehensive searches across files within a specified directory structure. You can use regular expressions to find specific text patterns, variable names, function calls, or any other textual content. It's invaluable for locating relevant code sections or identifying usage patterns.

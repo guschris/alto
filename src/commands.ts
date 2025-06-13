@@ -103,7 +103,7 @@ export async function runCommand(commandXml: string): Promise<string> {
     } else if (obj.list_code_definitions) {
         return list_code_definitions(obj.list_code_definitions.path, obj.list_code_definitions.recursive);
     } else if (obj.replace_in_file) {
-        return replace_in_file(obj.replace_in_file.path, obj.replace_in_file.regex, obj.replace_in_file.substitution);
+        return replace_in_file(obj.replace_in_file.path, obj.replace_in_file.find, obj.replace_in_file.replace);
     } else {
         return `ERROR: unknown tool`;
     }
@@ -337,19 +337,17 @@ async function list_code_definitions(dirPath: string, recursive: boolean = false
     return JSON.stringify(definitions);
 }
 
-async function replace_in_file(filePath: string, regex: string, substitution: string): Promise<string> {
+async function replace_in_file(filePath: string, find: string, replace: string): Promise<string> {
     try {
         const absolutePath = path.resolve(process.cwd(), filePath);
         let content = await fsp.readFile(absolutePath, 'utf-8');
-        const originalContent = content; // Store original content
 
-        const searchRegex = new RegExp(regex, 's'); // 's' (dotAll) flag to allow '.' to match newlines
-        content = content.replace(searchRegex, substitution);
-
-        if (content === originalContent) {
-            return `ERROR: No match found or no change occurred for regex "${regex}" in file ${filePath}`;
+        const idx = content.indexOf(find);
+        if (idx < 0) {
+            return `ERROR: No match found in file ${filePath}`;
         }
 
+        content = content.slice(0, idx) + replace + content.slice(idx + find.length);
         await fsp.writeFile(absolutePath, content, 'utf-8');
         return `File modified successfully: ${filePath}`;
     } catch (error: any) {
