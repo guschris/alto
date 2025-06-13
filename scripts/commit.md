@@ -1,1 +1,1 @@
-generate a summary commit message for me, from the output of command "git status -v" /nothink
+run "git status -v" using your internal "execute_command" tool and generate a summary commit message for me /no_think

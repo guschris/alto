@@ -3,13 +3,7 @@ import { createInterface } from 'readline';
 import { readFileSync, promises as fsPromises } from 'fs'; // Import promises
 import * as path from 'path';
 import { extractCommand, runCommand } from './commands';
-
-function altoSystemPrompt(): string {
-    const promptPath = path.join(__dirname, 'scripts', 'system-prompt.md');
-    const promptContent = readFileSync(promptPath, 'utf8');
-    process.stdout.write(`\x1b[90mSystem prompt loaded from: ${promptPath}\x1b[0m\n`); // Grey color for system messages
-    return promptContent;
-}
+import Spinner from './spinner'; // Import the new Spinner class
 
 interface OpenAIConfig {
   apiKey: string;
@@ -20,6 +14,16 @@ interface OpenAIConfig {
 interface Config {
   openai: OpenAIConfig;
   chatTimeout?: number | string; // Optional timeout setting, can be number or string
+}
+
+// global spinner
+const spinner = new Spinner();
+
+function altoSystemPrompt(): string {
+    const promptPath = path.join(__dirname, 'scripts', 'system-prompt.md');
+    const promptContent = readFileSync(promptPath, 'utf8');
+    process.stdout.write(`\x1b[90mSystem prompt loaded from: ${promptPath}\x1b[0m\n`); // Grey color for system messages
+    return promptContent;
 }
 
 /**
@@ -251,6 +255,8 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
   };
 
   for await (const data of stream) {
+    spinner.stop(); // stop on first messge
+
     // Accumulate usage and timings from the last chunk (usually contains final values)
     if (data.usage) {
       mergedResponse.usage = data.usage;
@@ -337,13 +343,35 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
 
 async function chat(input: string) {
   chatHistory.push({ role: 'user', content: input });
+  let assistantResponseContent = '';
   while (true) {
+    try {
+      spinner.start(); // Use default random message from Spinner class
+
       const chatStream = chatWithOpenAI(chatHistory);
-      const response = await handleChatStreamOutput(chatStream);
-      const commandXml = extractCommand(response);
-      if (!commandXml) break;
+      assistantResponseContent = await handleChatStreamOutput(chatStream);
+    } catch (error) {
+      console.error('Chat error:', error);
+    } finally {
+      spinner.stop(); // Ensure spinner is stopped
+    }
+
+    const commandXml = extractCommand(assistantResponseContent);
+    if (!commandXml) return;
+    
+    // If a command is extracted, run it and add to history
+    try {
+      spinner.start('Executing command...'); // Spinner for command execution
       const commandResponse = await runCommand(commandXml);
-      chatHistory.push({ role: 'system', content: commandResponse });
+      chatHistory.push({ role: 'system', content: commandResponse });      
+    } catch (error) {
+      spinner.stop(); 
+      console.error('Command execution error:', error);
+      chatHistory.push({ role: 'system', content: `Error executing command: ${error}` });
+      return;
+    } finally {
+      spinner.stop();
+    }
   }
 }
 
