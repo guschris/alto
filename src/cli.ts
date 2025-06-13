@@ -2,8 +2,9 @@
 import { createInterface } from 'readline';
 import { readFileSync, promises as fsPromises } from 'fs'; // Import promises
 import * as path from 'path';
-import { extractCommand, runCommand, isCommandStartTag, isCommandEndTag } from './commands';
+import { extractCommand, runCommand } from './commands';
 import Spinner from './spinner'; // Import the new Spinner class
+import { StreamOutputFormatter } from './outputFormatter'; // Import the new formatter
 
 interface OpenAIConfig {
   apiKey: string;
@@ -243,15 +244,8 @@ async function fetchContextWindowSize(): Promise<number | null> {
  * @param stream An asynchronous generator yielding data chunks as they are received.
  */
 async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<string> {
-  let isStreamingThinking = false;
   let assistantResponseContent = '';
-  const THINKING_COLOR = '\x1b[90m'; // Dark grey for thinking messages
-  const COMMAND_XML_COLOR = '\x1b[33m'; // Dark yellow for command XML messages
-  const RESET_COLOR = '\x1b[0m';
-
-  let isInsideCommand = false;
-  let currentCommand = '';
-  let buffer = '';
+  const formatter = new StreamOutputFormatter();
 
   let mergedResponse: any = {
     choices: [],
@@ -279,61 +273,9 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
           assistantResponseContent += delta.content || '';
 
           if (delta.reasoning_content) {
-            if (!isStreamingThinking) {
-              process.stdout.write(THINKING_COLOR + 'THINKING: ');
-              isStreamingThinking = true;
-            }
-            process.stdout.write(delta.reasoning_content);
+            formatter.writeThinking(delta.reasoning_content);
           } else if (delta.content) {
-            if (isStreamingThinking) {
-              process.stdout.write(RESET_COLOR + '\n');
-              isStreamingThinking = false;
-            }
-            
-            buffer += delta.content;
-
-            let loopAgain = true;
-            while(loopAgain) {
-                loopAgain = false;
-                if (!isInsideCommand) {
-                    const commandName = isCommandStartTag(buffer);
-                    if (commandName) {
-                        const startTagIndex = buffer.indexOf(`<${commandName}>`);
-                        const textBefore = buffer.substring(0, startTagIndex);
-                        process.stdout.write(textBefore);
-                        
-                        buffer = buffer.substring(startTagIndex);
-                        
-                        isInsideCommand = true;
-                        currentCommand = commandName;
-                        process.stdout.write(COMMAND_XML_COLOR); // Use dark yellow for command XML
-                        loopAgain = true;
-                    } else {
-                        const lastBracket = buffer.lastIndexOf('<');
-                        if (lastBracket === -1) {
-                            process.stdout.write(buffer);
-                            buffer = '';
-                        } else {
-                            process.stdout.write(buffer.substring(0, lastBracket));
-                            buffer = buffer.substring(lastBracket);
-                        }
-                    }
-                } else { // isInsideCommand
-                    const endTag = `</${currentCommand}>`;
-                    if (buffer.includes(endTag)) {
-                        const endTagIndex = buffer.indexOf(endTag) + endTag.length;
-                        const commandText = buffer.substring(0, endTagIndex);
-                        process.stdout.write(commandText);
-                        
-                        buffer = buffer.substring(endTagIndex);
-                        
-                        isInsideCommand = false;
-                        currentCommand = '';
-                        process.stdout.write(RESET_COLOR);
-                        loopAgain = true;
-                    }
-                }
-            }
+            formatter.writeContent(delta.content);
           }
         }
 
@@ -348,18 +290,23 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
     }
   }
 
-  if (buffer) {
-      process.stdout.write(buffer);
+  formatter.flush();
+  process.stdout.write('\n'); // Add a newline after the stream output
+
+  if (assistantResponseContent.length > 0) {
+    chatHistory.push({ role: 'assistant', content: assistantResponseContent });
   }
 
-  if (isStreamingThinking || isInsideCommand) {
-    process.stdout.write(RESET_COLOR);
-  }
-  process.stdout.write('\n');
+  displayUsageAndTimings(mergedResponse.usage, mergedResponse.timings);
 
-  if (mergedResponse.usage && mergedResponse.timings) {
-    const { usage, timings } = mergedResponse;
-    let outputString = `\n${THINKING_COLOR}Total Tokens: ${usage.total_tokens}`; // Use THINKING_COLOR for usage stats
+  return assistantResponseContent;
+}
+
+function displayUsageAndTimings(usage: any, timings: any) {
+  if (usage && timings) {
+    const THINKING_COLOR = '\x1b[90m'; // Define locally for this function
+    const RESET_COLOR = '\x1b[0m';
+    let outputString = `\n${THINKING_COLOR}Total Tokens: ${usage.total_tokens}`;
     if (contextWindowSize !== null) {
       const percentUsed = ((usage.total_tokens / contextWindowSize) * 100).toFixed(2);
       outputString += ` / ${contextWindowSize} (${percentUsed}%)`;
@@ -368,11 +315,6 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
     if (timings.predicted_per_second) outputString += ` | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}${RESET_COLOR}\n`;
     process.stdout.write(outputString);
   }
-
-  if (assistantResponseContent.length > 0) {
-    chatHistory.push({ role: 'assistant', content: assistantResponseContent });
-  }
-  return assistantResponseContent;
 }
 
 async function chat(input: string) {
