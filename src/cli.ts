@@ -2,7 +2,7 @@
 import { createInterface } from 'readline';
 import { readFileSync, promises as fsPromises } from 'fs'; // Import promises
 import * as path from 'path';
-import { extractCommand, runCommand } from './commands';
+import { extractCommand, runCommand, isCommandStartTag, isCommandEndTag } from './commands';
 import Spinner from './spinner'; // Import the new Spinner class
 
 interface OpenAIConfig {
@@ -244,9 +244,14 @@ async function fetchContextWindowSize(): Promise<number | null> {
  */
 async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<string> {
   let isStreamingThinking = false;
-  let assistantResponseContent = ''; // Accumulate assistant's content for chat history
-  const GREY_COLOR = '\x1b[90m'; // Dark grey
-  const RESET_COLOR = '\x1b[0m'; // Reset color
+  let assistantResponseContent = '';
+  const THINKING_COLOR = '\x1b[90m'; // Dark grey for thinking messages
+  const COMMAND_XML_COLOR = '\x1b[33m'; // Dark yellow for command XML messages
+  const RESET_COLOR = '\x1b[0m';
+
+  let isInsideCommand = false;
+  let currentCommand = '';
+  let buffer = '';
 
   let mergedResponse: any = {
     choices: [],
@@ -255,76 +260,106 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
   };
 
   for await (const data of stream) {
-    spinner.stop(); // stop on first messge
+    spinner.stop();
 
-    // Accumulate usage and timings from the last chunk (usually contains final values)
-    if (data.usage) {
-      mergedResponse.usage = data.usage;
-    }
-    if (data.timings) {
-      mergedResponse.timings = data.timings;
-    }
+    if (data.usage) mergedResponse.usage = data.usage;
+    if (data.timings) mergedResponse.timings = data.timings;
 
     if (data.choices) {
-      data.choices.forEach((chunkChoice: any) => {
+      for (const chunkChoice of data.choices) {
         const choiceIndex = chunkChoice.index;
-        // Find or create the corresponding choice in mergedResponse
         let mergedChoice = mergedResponse.choices[choiceIndex];
         if (!mergedChoice) {
           mergedChoice = { index: choiceIndex, delta: {}, finish_reason: null };
           mergedResponse.choices[choiceIndex] = mergedChoice;
         }
 
-        // Merge delta properties for final output/history
         if (chunkChoice.delta) {
           const delta = chunkChoice.delta;
+          assistantResponseContent += delta.content || '';
 
-          // Stream content and reasoning_content immediately
           if (delta.reasoning_content) {
             if (!isStreamingThinking) {
-              process.stdout.write(GREY_COLOR + 'THINKING: ');
+              process.stdout.write(THINKING_COLOR + 'THINKING: ');
               isStreamingThinking = true;
             }
             process.stdout.write(delta.reasoning_content);
-            mergedChoice.delta.reasoning_content = (mergedChoice.delta.reasoning_content || '') + delta.reasoning_content;
-          } else {
+          } else if (delta.content) {
             if (isStreamingThinking) {
               process.stdout.write(RESET_COLOR + '\n');
               isStreamingThinking = false;
             }
-            if (delta.content) {
-              process.stdout.write(delta.content);
-              assistantResponseContent += delta.content; // Accumulate for chat history
-              mergedChoice.delta.content = (mergedChoice.delta.content || '') + delta.content;
+            
+            buffer += delta.content;
+
+            let loopAgain = true;
+            while(loopAgain) {
+                loopAgain = false;
+                if (!isInsideCommand) {
+                    const commandName = isCommandStartTag(buffer);
+                    if (commandName) {
+                        const startTagIndex = buffer.indexOf(`<${commandName}>`);
+                        const textBefore = buffer.substring(0, startTagIndex);
+                        process.stdout.write(textBefore);
+                        
+                        buffer = buffer.substring(startTagIndex);
+                        
+                        isInsideCommand = true;
+                        currentCommand = commandName;
+                        process.stdout.write(COMMAND_XML_COLOR); // Use dark yellow for command XML
+                        loopAgain = true;
+                    } else {
+                        const lastBracket = buffer.lastIndexOf('<');
+                        if (lastBracket === -1) {
+                            process.stdout.write(buffer);
+                            buffer = '';
+                        } else {
+                            process.stdout.write(buffer.substring(0, lastBracket));
+                            buffer = buffer.substring(lastBracket);
+                        }
+                    }
+                } else { // isInsideCommand
+                    const endTag = `</${currentCommand}>`;
+                    if (buffer.includes(endTag)) {
+                        const endTagIndex = buffer.indexOf(endTag) + endTag.length;
+                        const commandText = buffer.substring(0, endTagIndex);
+                        process.stdout.write(commandText);
+                        
+                        buffer = buffer.substring(endTagIndex);
+                        
+                        isInsideCommand = false;
+                        currentCommand = '';
+                        process.stdout.write(RESET_COLOR);
+                        loopAgain = true;
+                    }
+                }
             }
           }
-
         }
 
-        // Store finish_reason
         if (chunkChoice.finish_reason) {
           mergedChoice.finish_reason = chunkChoice.finish_reason;
         }
-      });
+      }
     }
 
-    // Check for stream end based on the first choice's finish_reason
-    // This assumes all choices finish around the same time or we only care about the first one for stream termination.
-    // If multiple choices can finish at different times, this logic might need adjustment.
     if (data.choices[0]?.finish_reason) {
-      break; // End of output
+      break;
     }
   }
 
-  if (isStreamingThinking) { // Ensure a newline and reset if thinking ended right before stream finished
+  if (buffer) {
+      process.stdout.write(buffer);
+  }
+
+  if (isStreamingThinking || isInsideCommand) {
     process.stdout.write(RESET_COLOR);
   }
-  process.stdout.write('\n'); // Newline after the streamed response
+  process.stdout.write('\n');
 
-  // Display usage and timings
   if (mergedResponse.usage && mergedResponse.timings) {
     const { usage, timings } = mergedResponse;
-    let outputString = `\n${GREY_COLOR}Total Tokens: ${usage.total_tokens}`;
+    let outputString = `\n${THINKING_COLOR}Total Tokens: ${usage.total_tokens}`; // Use THINKING_COLOR for usage stats
     if (contextWindowSize !== null) {
       const percentUsed = ((usage.total_tokens / contextWindowSize) * 100).toFixed(2);
       outputString += ` / ${contextWindowSize} (${percentUsed}%)`;
@@ -334,7 +369,6 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
     process.stdout.write(outputString);
   }
 
-  // Add assistant's response to chat history
   if (assistantResponseContent.length > 0) {
     chatHistory.push({ role: 'assistant', content: assistantResponseContent });
   }

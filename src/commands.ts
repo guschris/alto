@@ -7,6 +7,19 @@ import * as util from 'util';
 
 const commandNames = [ 'list_files', 'read_file', 'write_file', 'search_files', 'list_code_definitions', 'execute_command', 'replace_in_file' ];
 
+export function isCommandStartTag(text: string): string | null {
+    for (const name of commandNames) {
+        if (text.includes(`<${name}>`)) {
+            return name;
+        }
+    }
+    return null;
+}
+
+export function isCommandEndTag(text: string, commandName: string): boolean {
+    return text.includes(`</${commandName}>`);
+}
+
 const languageDefinitions: { [key: string]: { type: string, regex: RegExp }[] } = {
     '.js': [
         { type: 'class', regex: /(?:class|export class)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)/ },
