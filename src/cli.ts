@@ -5,7 +5,7 @@ import * as path from 'path';
 import { extractCommand, runCommand } from './commands';
 
 function altoSystemPrompt(): string {
-    const promptPath = path.join(__dirname, 'scripts', 'system-prompt');
+    const promptPath = path.join(__dirname, 'scripts', 'system-prompt.md');
     const promptContent = readFileSync(promptPath, 'utf8');
     process.stderr.write(`\x1b[90mSystem prompt loaded from: ${promptPath}\x1b[0m\n`); // Grey color for system messages
     return promptContent;
@@ -304,7 +304,7 @@ function showChatHistory() {
   }
 }
 
-function showHelp() {
+async function showHelp() { // Made async
   console.log('Available commands:');
   console.log('  /exit    - Quit the application');
   console.log('  /help    - Show this help message');
@@ -312,8 +312,26 @@ function showHelp() {
   console.log('  /clear   - Clear chat history');
   console.log('  /history - Show chat history');
   console.log('  /system <prompt> - Set the system prompt for the chatbot');
+  console.log('    (To permanently change the default system prompt, edit scripts/system-prompt.md)');
   console.log('  /go      - Submit a multi-line prompt');
-  console.log('  /<filename> - Submit content from a file in src/scripts (e.g., /commit)');
+  console.log('  /<filename> - Submit content from a file in scripts/ (e.g., /commit)');
+
+  const scriptDir = path.join(__dirname, 'scripts');
+  try {
+    const files = await fsPromises.readdir(scriptDir);
+    const scriptFiles = files.filter(file => 
+      (file.endsWith('.md') || file.endsWith('.txt')) && file !== 'system-prompt.md' // Exclude system-prompt.md
+    );
+    if (scriptFiles.length > 0) {
+      console.log('\nAvailable scripts (use /<script_name>):');
+      scriptFiles.forEach(file => {
+        const scriptName = path.parse(file).name;
+        console.log(`  /${scriptName}`);
+      });
+    }
+  } catch (error) {
+    console.error(`Error listing scripts: ${error}`);
+  }
 }
 
 function setSystemPrompt(input: string) {
@@ -373,6 +391,9 @@ async function main() { // Make main async
           console.log('Multi-line prompt is empty. Nothing to submit.');
         }
         currentMultiLinePrompt = ''; // Always reset after /go
+        break;
+      case '/system-prompt': // Prevent /system-prompt from being treated as a custom script
+        console.log('To permanently change the default system prompt, edit the file scripts/system-prompt.md directly.');
         break;
       default:
         if (lowercasedInput.startsWith('/')) {

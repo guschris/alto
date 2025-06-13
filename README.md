@@ -8,8 +8,9 @@ This is a command-line interface (CLI) tool designed to act as your **AI pair pr
 *   **Multi-line Prompts for Complex Discussions**: Easily provide detailed queries, code snippets, or elaborate problem descriptions across multiple lines, facilitating deeper collaboration.
 *   **Intelligent Command Execution**: The AI can autonomously read your code, search your folders, and update your files, as well as being able to execute safe CLI commands. This allows the AI to gather information, test hypotheses, and perform actions as part of your pair programming session.
 *   **Contextual File Content Submission**: Seamlessly share the content of local files (e.g., markdown, text files, code snippets) with the AI, enabling it to understand your codebase and provide relevant assistance.
+*   **Custom Script Execution**: Run pre-defined scripts or prompts from the `scripts/` directory directly via top-level commands (e.g., `/commit`), streamlining common workflows or providing specific AI instructions.
 *   **Persistent Chat History**: Maintain a continuous conversation flow, allowing the AI to remember past interactions and build upon previous discussions.
-*   **Dynamic System Prompt for Role-Playing**: Customize the AI's persona or expertise (e.g., "You are a senior TypeScript architect") to tailor its assistance to your specific needs.
+*   **Dynamic System Prompt for Role-Playing**: Customize the AI's persona or expertise (e.g., "You are a senior TypeScript architect") to tailor its assistance to your specific needs. The default system prompt can be permanently customized by editing the `scripts/system-prompt` file.
 *   **Model Listing**: List available AI models to choose the best "partner" for your task.
 
 ### Collaborative Interaction
