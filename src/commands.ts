@@ -257,7 +257,7 @@ async function search_files(dirPath: string, regex: string, recursive: boolean =
 }
 
 async function list_code_definitions(dirPath: string, recursive: boolean = false): Promise<string> {
-    let definitions: string[] = [];
+    let definitions: { path: string, line: number, type: string, name: string }[] = [];
     const absoluteDirPath = path.resolve(process.cwd(), dirPath);
     const ignorePatterns = getIgnoredPatterns(absoluteDirPath);
 
@@ -274,9 +274,15 @@ async function list_code_definitions(dirPath: string, recursive: boolean = false
 
             if (dirent.isDirectory()) {
                 if (recursive) {
-                    const subDefinitions = await list_code_definitions(relativePath, true);
-                    if (subDefinitions !== '(no files)' && !subDefinitions.startsWith('ERROR:')) {
-                        definitions = definitions.concat(subDefinitions.split('\n'));
+                    const subDefinitionsJson = await list_code_definitions(relativePath, true);
+                    try {
+                        const subDefinitions = JSON.parse(subDefinitionsJson);
+                        if (Array.isArray(subDefinitions)) {
+                            definitions = definitions.concat(subDefinitions);
+                        }
+                    } catch (parseError) {
+                        // If sub-call returns an error string or non-JSON, ignore or log
+                        console.error(`Error parsing sub-definitions from ${relativePath}:`, parseError);
                     }
                 }
             } else if (dirent.isFile()) {
@@ -292,7 +298,12 @@ async function list_code_definitions(dirPath: string, recursive: boolean = false
                             definitionsForLanguage.forEach(def => {
                                 const match = line.match(def.regex);
                                 if (match) {
-                                    definitions.push(`${relativePath}:${index + 1}: ${def.type} ${match[1]}`);
+                                    definitions.push({
+                                        path: relativePath,
+                                        line: index + 1,
+                                        type: def.type,
+                                        name: match[1]
+                                    });
                                 }
                             });
                         });
@@ -305,12 +316,12 @@ async function list_code_definitions(dirPath: string, recursive: boolean = false
         }
     } catch (error: any) {
         if (error.code === 'ENOENT' || error.code === 'EACCES') {
-            return `ERROR: Directory not found or not accessible: ${dirPath}`;
+            return JSON.stringify({ error: `Directory not found or not accessible: ${dirPath}` });
         }
-        throw error;
+        return JSON.stringify({ error: `An unexpected error occurred: ${error.message}` });
     }
 
-    return definitions.join('\n');
+    return JSON.stringify(definitions);
 }
 
 async function replace_in_file(filePath: string, regex: string, substitution: string): Promise<string> {
