@@ -23,6 +23,7 @@ interface ChatMessage {
 let config: Config;
 let chatHistory: ChatMessage[] = [];
 let systemPrompt: string = altoSystemPrompt();
+let currentMultiLinePrompt = '';
 
 try {
   const configPath = path.join(__dirname, '..', 'config.json');
@@ -305,6 +306,7 @@ function showHelp() {
   console.log('  /clear   - Clear chat history');
   console.log('  /history - Show chat history');
   console.log('  /system <prompt> - Set the system prompt for the chatbot');
+  console.log('  /go      - Submit a multi-line prompt');
 }
 
 function setSystemPrompt(input: string) {
@@ -326,23 +328,24 @@ async function main() { // Make main async
   });
 
   console.log('AI Coding Assistant CLI');
-  console.log('Type "/help" for available commands'); // Updated help message
+  console.log('Type "/help" for available commands. Enter multi-line prompts and type "/go" to submit.');
 
   contextWindowSize = await fetchContextWindowSize(); // Fetch context window size at startup
   clearChatHistory(); // setup the system prompt
 
-  rl.on('line', async (input) => { // Made async to await chatWithOpenAI
-    const command = input.trim().toLowerCase();
-    
-    switch (command) {
+  for await (const input of rl) {
+    const trimmedInput = input.trim();
+    const lowercasedInput = trimmedInput.toLowerCase();
+
+    switch (lowercasedInput) {
       case '/exit':
         console.log('Goodbye!');
         rl.close();
-        break;
+        return; // Exit the main function after closing readline
       case '/help':
         showHelp();
         break;
-      case command.startsWith('/system ') ? command : '': // Handle /system command
+      case lowercasedInput.startsWith('/system ') ? lowercasedInput : '': // Handle /system command
         setSystemPrompt(input);
         break;
       case '/models':
@@ -356,15 +359,23 @@ async function main() { // Make main async
       case '/history':
         showChatHistory();
         break;
+      case '/go':
+        if (currentMultiLinePrompt.trim().length > 0) {
+          await chat(currentMultiLinePrompt.trim());
+        } else {
+          console.log('Multi-line prompt is empty. Nothing to submit.');
+        }
+        currentMultiLinePrompt = ''; // Always reset after /go
+        break;
       default:
-        await chat(input.trim())
+        // If it's not a command, it's part of the multi-line prompt
+        currentMultiLinePrompt += (currentMultiLinePrompt.length > 0 ? '\n' : '') + input;
         break;
     }
-  });
+  }
 
-  rl.on('close', () => {
-    process.exit(0);
-  });
+  // This part will only be reached if rl.close() is called, e.g., by /exit
+  process.exit(0);
 }
 
 main();
