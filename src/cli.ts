@@ -57,14 +57,20 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
       stream: true
     };
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10 * 60000); // 10 minutes timeout
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify(msg)
+      body: JSON.stringify(msg),
+      signal: controller.signal // Associate the signal with the fetch request
     });
+
+    clearTimeout(timeoutId); // Clear the timeout if the fetch completes before timeout
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -103,8 +109,12 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
         }
       }
     }
-  } catch (error) {
-    console.error('Error communicating with OpenAI:', error);
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      console.error('Error communicating with OpenAI: Request timed out.');
+    } else {
+      console.error('Error communicating with OpenAI:', error);
+    }
   }
 }
 
