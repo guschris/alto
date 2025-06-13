@@ -12,7 +12,6 @@ interface OpenAIConfig {
 
 interface Config {
   openai: OpenAIConfig;
-  tools?: [ { type: "function", function: { name: string, description: string, parameters: any, strict: boolean } } ]
 }
 
 interface ChatMessage {
@@ -49,10 +48,6 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
       messages: messages,
       stream: true
     };
-    if (config.tools?.length) {
-      msg.tools = config.tools;
-      msg.tool_choice = "auto";
-    }
 
     const response = await fetch(url, {
       method: 'POST',
@@ -218,14 +213,14 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
           // Stream content and reasoning_content immediately
           if (delta.reasoning_content) {
             if (!isStreamingThinking) {
-              process.stdout.write(GREY_COLOR + 'THINKING: ');
+              process.stderr.write(GREY_COLOR + 'THINKING: ');
               isStreamingThinking = true;
             }
             process.stdout.write(delta.reasoning_content);
             mergedChoice.delta.reasoning_content = (mergedChoice.delta.reasoning_content || '') + delta.reasoning_content;
           } else {
             if (isStreamingThinking) {
-              process.stdout.write(RESET_COLOR + '\n');
+              process.stderr.write(RESET_COLOR + '\n');
               isStreamingThinking = false;
             }
             if (delta.content) {
@@ -235,26 +230,6 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
             }
           }
 
-          // Merge tool_calls for final output
-          if (delta.tool_calls) {
-            if (!mergedChoice.delta.tool_calls) {
-              mergedChoice.delta.tool_calls = [];
-            }
-            delta.tool_calls.forEach((toolCallChunk: any) => {
-              const toolCallIndex = toolCallChunk.index;
-              let mergedToolCall = mergedChoice.delta.tool_calls[toolCallIndex];
-
-              if (!mergedToolCall) {
-                mergedToolCall = { id: toolCallChunk.id, type: toolCallChunk.type, function: { name: toolCallChunk.function?.name || '', arguments: '' } };
-                mergedChoice.delta.tool_calls[toolCallIndex] = mergedToolCall;
-              }
-
-              // Concatenate arguments
-              if (toolCallChunk.function?.arguments) {
-                mergedToolCall.function.arguments += toolCallChunk.function.arguments;
-              }
-            });
-          }
         }
 
         // Store finish_reason
@@ -267,45 +242,29 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>) {
     // Check for stream end based on the first choice's finish_reason
     // This assumes all choices finish around the same time or we only care about the first one for stream termination.
     // If multiple choices can finish at different times, this logic might need adjustment.
-    if (data.choices[0]?.finish_reason === 'stop' || data.choices[0]?.finish_reason === 'tool_calls') {
-      if (isStreamingThinking) {
-        process.stdout.write(RESET_COLOR + '\n');
-        isStreamingThinking = false;
-      }
-      // Display tool calls if any, from the merged response
-      mergedResponse.choices.forEach((choice: any) => {
-        if (choice.delta.tool_calls && choice.delta.tool_calls.length > 0) {
-          process.stdout.write('\n' + GREY_COLOR + 'TOOL CALLS:\n');
-          choice.delta.tool_calls.forEach((toolCall: any) => {
-            process.stdout.write(`  ID: ${toolCall.id}\n`);
-            process.stdout.write(`  Type: ${toolCall.type}\n`);
-            process.stdout.write(`  Function Name: ${toolCall.function.name}\n`);
-            process.stdout.write(`  Arguments: ${toolCall.function.arguments}\n`);
-          });
-          process.stdout.write(RESET_COLOR);
-        }
-      });
-
-      // Display usage and timings
-      if (mergedResponse.usage && mergedResponse.timings) {
-        process.stdout.write(GREY_COLOR);
-        let outputString = `\nTotal Tokens: ${mergedResponse.usage.total_tokens}`;
-        if (contextWindowSize !== null) {
-          const percentUsed = ((mergedResponse.usage.total_tokens / contextWindowSize) * 100).toFixed(2);
-          outputString += ` / ${contextWindowSize} (${percentUsed}%)`;
-        }
-        outputString += ` | Prompt PPS: ${mergedResponse.timings.prompt_per_second.toFixed(2)}`;
-        outputString += ` | Predicted PPS: ${mergedResponse.timings.predicted_per_second.toFixed(2)}\n`;
-        process.stdout.write(outputString);
-        process.stdout.write(RESET_COLOR);
-      }
+    if (data.choices[0]?.finish_reason) {
       break; // End of output
     }
   }
+
   if (isStreamingThinking) { // Ensure a newline and reset if thinking ended right before stream finished
     process.stdout.write(RESET_COLOR + '\n');
   }
   process.stdout.write('\n'); // Newline after the streamed response
+
+  // Display usage and timings
+  if (mergedResponse.usage && mergedResponse.timings) {
+    process.stderr.write(GREY_COLOR);
+    let outputString = `\nTotal Tokens: ${mergedResponse.usage.total_tokens}`;
+    if (contextWindowSize !== null) {
+      const percentUsed = ((mergedResponse.usage.total_tokens / contextWindowSize) * 100).toFixed(2);
+      outputString += ` / ${contextWindowSize} (${percentUsed}%)`;
+    }
+    outputString += ` | Prompt PPS: ${mergedResponse.timings.prompt_per_second.toFixed(2)}`;
+    outputString += ` | Predicted PPS: ${mergedResponse.timings.predicted_per_second.toFixed(2)}\n`;
+    process.stderr.write(outputString);
+    process.stderr.write(RESET_COLOR);
+  }
 
   // Add assistant's response to chat history
   if (assistantResponseContent.length > 0) {
