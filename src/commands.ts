@@ -3,8 +3,9 @@ import * as fs from 'fs';
 import * as fsp from 'fs/promises'; // Import fs.promises
 import * as path from 'path';
 import { exec } from 'child_process';
+import * as util from 'util';
 
-const commandNames = [ 'list_files', 'read_file', 'write_file', 'search_files', 'list_code_definitions' ];
+const commandNames = [ 'list_files', 'read_file', 'write_file', 'search_files', 'list_code_definitions', 'execute_command' ];
 
 const languageDefinitions: { [key: string]: { type: string, regex: RegExp }[] } = {
     '.js': [
@@ -83,7 +84,7 @@ export async function runCommand(commandXml: string): Promise<string> {
     } else if (obj.write_file) {
         return write_file(obj.write_file.path, obj.write_file.content);
     } else if (obj.execute_command) {
-        return await execute_command(obj.execute_command.command, obj.execute_command.unsafe);
+        return await execute_command(obj.execute_command.command, obj.execute_command.safe);
     } else if (obj.search_files) {
         return search_files(obj.search_files.path, obj.search_files.regex, obj.search_files.recursive);
     } else if (obj.list_code_definitions) {
@@ -152,19 +153,21 @@ function write_file(filePath: string, content: string): string {
     }
 }
 
-function execute_command(command: string, unsafe: boolean): Promise<string> {
-    return new Promise((resolve, reject) => {
-        if (!unsafe) {
-            return reject("ERROR: Cannot execute command. 'unsafe' parameter is false.");
+const execPromise = util.promisify(exec);
+
+async function execute_command(command: string, safe: boolean): Promise<string> {
+    if (!safe) {
+        return "ERROR: Cannot execute command. 'unsafe' parameter is false.";
+    }
+    try {
+        const { stdout, stderr } = await execPromise(command);
+        if (stderr) {
+            console.error("command returned: " + stderr);
         }
-        exec(command, (error, stdout, stderr) => {
-            if (error) {
-                reject(`ERROR: Command failed: ${error.message}\n${stderr}`);
-                return;
-            }
-            resolve(stdout);
-        });
-    });
+        return stdout;
+    } catch (error: any) {
+        return `ERROR: Command failed: ${error.message}\n${error.stderr}`;
+    }
 }
 
 function getGitIgnorePatterns(dirPath: string): string[] {

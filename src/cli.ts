@@ -257,7 +257,8 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
       const percentUsed = ((usage.total_tokens / contextWindowSize) * 100).toFixed(2);
       outputString += ` / ${contextWindowSize} (${percentUsed}%)`;
     }
-    outputString += ` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)} | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}${RESET_COLOR}\n`;
+    if (timings.prompt_per_second) outputString += ` | Prompt PPS: ${timings.prompt_per_second.toFixed(2)}`;
+    if (timings.predicted_per_second) outputString += ` | Predicted PPS: ${timings.predicted_per_second.toFixed(2)}${RESET_COLOR}\n`;
     process.stderr.write(outputString);
   }
 
@@ -276,7 +277,6 @@ async function chat(input: string) {
       const commandXml = extractCommand(response);
       if (!commandXml) break;
       const commandResponse = await runCommand(commandXml);
-      console.error(commandResponse); // for debugging
       chatHistory.push({ role: 'system', content: commandResponse });
   }
 }
