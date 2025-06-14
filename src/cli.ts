@@ -2,7 +2,7 @@
 import { createInterface } from 'readline';
 import { readFileSync, promises as fsPromises } from 'fs'; // Import promises
 import * as path from 'path';
-import { extractCommand, runCommand } from './commands';
+import { extractCommand, runCommand } from './commands'; // No change needed here, but keeping for context
 import Spinner from './spinner'; // Import the new Spinner class
 import { StreamOutputFormatter } from './outputFormatter'; // Import the new formatter
 
@@ -334,13 +334,13 @@ async function chat(input: string) {
       spinner.stop(); // Ensure spinner is stopped
     }
 
-    const commandXml = extractCommand(assistantResponseContent);
-    if (!commandXml) return;
+    const shellCommand = extractCommand(assistantResponseContent);
+    if (!shellCommand) return;
     
     // If a command is extracted, run it and add to history
     try {
       spinner.start('Executing command...'); // Spinner for command execution
-      const commandResponse = await runCommand(commandXml);
+      const commandResponse = await runCommand(shellCommand);
       chatHistory.push({ role: 'system', content: commandResponse });      
     } catch (error) {
       spinner.stop(); 
