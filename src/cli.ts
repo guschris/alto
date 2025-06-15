@@ -10,6 +10,9 @@ interface OpenAIConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
+  provider?: {
+    only?: string[]
+  }
 }
 
 interface Config {
@@ -94,6 +97,9 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
       messages: messages,
       stream: true
     };
+    if (config.openai.provider) {
+      msg.provider = config.openai.provider;
+    }
 
     const controller = new AbortController();
     const chatTimeout = getChatTimeout();
@@ -192,8 +198,10 @@ async function listOpenAIModels() {
     const data = await response.json();
     console.log('\nAvailable Models:');
     if (data.data && Array.isArray(data.data)) {
-      data.data.forEach((model: any) => {
-        console.log(`- ${model.id}`);
+      const models: string[] = data.data.map((model:any) => model.id);
+      models.sort();
+      models.forEach(m => {
+        console.log(`- ${m}`);
       });
     } else {
       console.log('No models found or unexpected response format.');
@@ -450,7 +458,8 @@ async function handleFileCommand(fileName: string) {
 async function main() { // Make main async
   const rl = createInterface({
     input: process.stdin,
-    output: process.stdout
+    output: process.stdout,
+    prompt: 'Alto> '
   });
 
   console.log('Alto - pair programming AI is ready!');
@@ -458,6 +467,8 @@ async function main() { // Make main async
 
   contextWindowSize = await fetchContextWindowSize(); // Fetch context window size at startup
   clearChatHistory(); // setup the system prompt
+  
+  rl.prompt(); // Display the initial prompt
 
   for await (const input of rl) {
     const trimmedInput = input.trim();
@@ -469,18 +480,22 @@ async function main() { // Make main async
         rl.close();
         return; // Exit the main function after closing readline
       case '/help':
-        showHelp();
+        await showHelp();
+        rl.prompt();
         break;
       case '/models':
         console.log('Fetching available models...');
         await listOpenAIModels();
+        rl.prompt();
         break;
       case '/clear':
         clearChatHistory();
         console.log('Chat history cleared.');
+        rl.prompt();
         break;
       case '/history':
         showChatHistory();
+        rl.prompt();
         break;
       case '/go':
         if (currentMultiLinePrompt.trim().length > 0) {
@@ -489,25 +504,31 @@ async function main() { // Make main async
           console.log('Multi-line prompt is empty. Nothing to submit.');
         }
         currentMultiLinePrompt = ''; // Always reset after /go
+        rl.prompt();
         break;
       case '/system-prompt': // Prevent /system-prompt from being treated as a custom script
         console.log('To permanently change the default system prompt, edit the file scripts/system-prompt.md directly.');
+        rl.prompt();
         break;
       default:
         // Handle /system command explicitly here
         if (lowercasedInput.startsWith('/system ')) {
           setSystemPrompt(input);
+          rl.prompt();
         } else if (lowercasedInput.startsWith('/')) {
           const fileName = trimmedInput.substring(1); // Remove the leading '/'
           await handleFileCommand(fileName);
+          rl.prompt();
         } else {
           // If it's an empty line and there's content in the multi-line prompt, submit it
           if (trimmedInput.length === 0 && currentMultiLinePrompt.trim().length > 0) {
             await chat(currentMultiLinePrompt.trim());
             currentMultiLinePrompt = ''; // Reset after submission
+            rl.prompt();
           } else {
             // Otherwise, it's part of the multi-line prompt
             currentMultiLinePrompt += (currentMultiLinePrompt.length > 0 ? '\n' : '') + input;
+            rl.prompt();
           }
         }
         break;
