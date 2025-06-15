@@ -1,5 +1,5 @@
 // src/cli.ts
-import { createInterface } from 'readline';
+import { createInterface, Interface } from 'readline';
 import { readFileSync, promises as fsPromises } from 'fs'; // Import promises
 import * as path from 'path';
 import { runCommand } from './commands';
@@ -412,7 +412,7 @@ function displayUsageAndTimings(usage: any, timings: any) {
   }
 }
 
-async function chat(input: string) {
+async function chat(input: string, rl: Interface) {
   chatHistory.push({ role: 'user', content: input });
 
   while (true) {
@@ -438,14 +438,9 @@ async function chat(input: string) {
               const requiresApproval = args.requires_approval;
 
               if (requiresApproval) {
-                const rl = createInterface({
-                  input: process.stdin,
-                  output: process.stdout,
-                });
                 const answer = await new Promise<string>(resolve => {
                   rl.question(`\x1b[31mApproval needed for command: \x1b[36m${command}\x1b[0m\nExecute? (yes/no): `, resolve);
                 });
-                rl.close();
 
                 if (answer.toLowerCase() !== 'yes') {
                   chatHistory.push({
@@ -559,7 +554,7 @@ function setSystemPrompt(input: string) {
  * Handles commands to submit content from a file.
  * @param fileName The name of the file (without path or extension) to read from src/scripts.
  */
-async function handleFileCommand(fileName: string) {
+async function handleFileCommand(fileName: string, rl: Interface) {
   const scriptDir = path.join(__dirname, 'scripts');
   const possibleExtensions = ['.md', '.txt'];
   let filePath = '';
@@ -581,7 +576,7 @@ async function handleFileCommand(fileName: string) {
     try {
       const fileContent = await fsPromises.readFile(filePath, 'utf-8');
       console.log(`Submitting content from ${filePath}...`);
-      await chat(fileContent);
+      await chat(fileContent, rl);
     } catch (error) {
       console.error(`Error reading file ${filePath}:`, error);
     }
@@ -648,7 +643,7 @@ async function main() { // Make main async
         break;
       case '/go':
         if (currentMultiLinePrompt.trim().length > 0) {
-          await chat(currentMultiLinePrompt.trim());
+          await chat(currentMultiLinePrompt.trim(), rl);
         } else {
           console.log('Multi-line prompt is empty. Nothing to submit.');
         }
@@ -666,12 +661,12 @@ async function main() { // Make main async
           if (isInteractive) rl.prompt();
         } else if (lowercasedInput.startsWith('/')) {
           const fileName = trimmedInput.substring(1); // Remove the leading '/'
-          await handleFileCommand(fileName);
+          await handleFileCommand(fileName, rl);
           if (isInteractive) rl.prompt();
         } else {
           // If it's an empty line and there's content in the multi-line prompt, submit it
           if (trimmedInput.length === 0 && currentMultiLinePrompt.trim().length > 0) {
-            await chat(currentMultiLinePrompt.trim());
+            await chat(currentMultiLinePrompt.trim(), rl);
             currentMultiLinePrompt = ''; // Reset after submission
             if (isInteractive) rl.prompt();
           } else {
@@ -679,7 +674,7 @@ async function main() { // Make main async
             currentMultiLinePrompt += (currentMultiLinePrompt.length > 0 ? '\n' : '') + input;
             // For non-interactive mode, if we have input, process it immediately
             if (!isInteractive && currentMultiLinePrompt.trim().length > 0) {
-              await chat(currentMultiLinePrompt.trim());
+              await chat(currentMultiLinePrompt.trim(), rl);
               currentMultiLinePrompt = '';
               rl.close();
               return;
