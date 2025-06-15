@@ -76,7 +76,7 @@ grep -r --include="*.py" --exclude-dir=venv "except\|raise" .
 ```
 Creating stash before modifications:
 ----START_SH----
-git stash push -m "Alto: Before adding authentication middleware"
+git stash push -m "Alto: Before adding authentication middleware" -- src/file.js
 ----END_SH----
 ```
 
