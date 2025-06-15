@@ -366,7 +366,7 @@ async function chat(input: string) {
       try {
         spinner.start('Executing command...'); // Spinner for command execution
         const commandResponse = await runCommand(cmd.content as string);
-        chatHistory.push({ role: 'system', content: commandResponse });      
+        chatHistory.push({ role: 'user', content: commandResponse });      
       } catch (error) {
         spinner.stop(); 
         console.error('Command execution error:', error);
