@@ -3,7 +3,7 @@ const TOOL_COLOR = '\x1b[33m';
 const RESET_COLOR = '\x1b[0m';
 
 export class StreamOutputFormatter {
-  private buffer: string = '';
+  private toolBuffer: string = '';
   private isStreamingThinking: boolean = false;
   private isToolCall: boolean = false;
 
@@ -32,22 +32,26 @@ export class StreamOutputFormatter {
     }
   }
 
-  public writeToolCall(functionName: string, args: string): void {
+  public writeToolCall(chunk: string): void {
     this.stopThinking();
     this.startToolCall();
+    this.toolBuffer += chunk;
   }
   
   private startToolCall() {
     if (!this.isToolCall) {
       this.flush();
-      process.stdout.write(TOOL_COLOR + '\nTool call...');
+      process.stdout.write(TOOL_COLOR + '\nShell: ');
       this.isToolCall = true;
+      this.toolBuffer = '';
     }
   }
 
   private stopToolCall() {
     if (this.isToolCall) {
-      process.stdout.write(RESET_COLOR); //TODO: show then call
+      //Note: this works whilst we have command line tool calls ONLY
+      const tc = JSON.parse(this.toolBuffer);
+      process.stdout.write((tc?.command ?? '') + RESET_COLOR);
       this.isToolCall = false;
     }
   }
@@ -55,17 +59,10 @@ export class StreamOutputFormatter {
   public writeContent(chunk: string): void {
     this.stopThinking();
     this.stopToolCall();
-
-    this.buffer += chunk;
-    process.stdout.write(this.buffer); // Directly write the buffer
-    this.buffer = ''; // Clear the buffer after writing
+    process.stdout.write(chunk);
   }
 
   public flush(): void {
-    if (this.buffer) {
-      process.stdout.write(this.buffer);
-      this.buffer = '';
-    }
     this.stopThinking();
     this.stopToolCall();
   }

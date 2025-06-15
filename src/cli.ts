@@ -356,10 +356,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<{
                   // Append to existing tool call arguments
                   mergedChoice.delta.tool_calls[toolCall.index].function.arguments += toolCall.function?.arguments || '';
                 }
-                formatter.writeToolCall(
-                  mergedChoice.delta.tool_calls[toolCall.index].function.name,
-                  mergedChoice.delta.tool_calls[toolCall.index].function.arguments
-                );
+                formatter.writeToolCall(toolCall.function?.arguments as string);
               }
             }
             // Update toolCalls array with the current state
