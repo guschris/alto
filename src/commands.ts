@@ -12,7 +12,7 @@ export function extractCommand(response: string): { type: "command"|"error"|"non
         return { type: "none"};
     }
     
-    const endIndex = response.lastIndexOf(endMarker, startIndex + startMarker.length);
+    const endIndex = response.lastIndexOf(endMarker);
     if (endIndex === -1) {
         return { type: "none"};
     }
