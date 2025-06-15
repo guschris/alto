@@ -9,9 +9,21 @@ import { StreamOutputFormatter } from './outputFormatter'; // Import the new for
 interface OpenAIConfig {
   apiKey: string;
   baseUrl: string;
-  model: string;
-  provider?: {
-    only?: string[]
+  
+  // request is sent in the body of the request to the chat endpoint
+  request: {
+    model: string;
+     
+    // common openrouter settings
+    include_reasoning?: boolean;
+    temperature?: number;
+    top_p?: number;
+    top_k?: number;
+    min_p?: number;
+    provider?: {
+      sort?: string;
+      only?: string;
+    }
   }
 }
 
@@ -88,18 +100,15 @@ try {
  * @returns An asynchronous generator that yields parsed JSON data chunks from the API.
  */
 async function* chatWithOpenAI(messages: ChatMessage[]) {
-  const { apiKey, baseUrl, model } = config.openai;
+  const { apiKey, baseUrl, request } = config.openai;
   const url = `${baseUrl}/chat/completions`;
 
   try {
     const msg: any = {
-      model: model,
+      ...request,
       messages: messages,
       stream: true
     };
-    if (config.openai.provider) {
-      msg.provider = config.openai.provider;
-    }
     if (config.openai.baseUrl.includes("openrouter.ai")) {
       msg.include_reasoning = true;
     }
@@ -285,7 +294,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
 
           if (delta.reasoning_content) { // qwen3 running on llama.cpp
             formatter.writeThinking(delta.reasoning_content);
-          } else if (delta.reasoning) { // openrouter.ai
+          } else if (delta.reasoning) { // deepseek or qwen3 on openrouter.ai
             formatter.writeThinking(delta.reasoning);
           } else if (delta.content) {
             formatter.writeContent(delta.content);
