@@ -356,21 +356,25 @@ async function chat(input: string) {
       spinner.stop(); // Ensure spinner is stopped
     }
 
-    const shellCommand = extractCommand(assistantResponseContent);
-    if (!shellCommand) return;
-    
-    // If a command is extracted, run it and add to history
-    try {
-      spinner.start('Executing command...'); // Spinner for command execution
-      const commandResponse = await runCommand(shellCommand);
-      chatHistory.push({ role: 'system', content: commandResponse });      
-    } catch (error) {
-      spinner.stop(); 
-      console.error('Command execution error:', error);
-      chatHistory.push({ role: 'system', content: `Error executing command: ${error}` });
+    const cmd = extractCommand(assistantResponseContent);
+    if (cmd.type === 'none') {
       return;
-    } finally {
-      spinner.stop();
+    } else if (cmd.type === 'error') {      
+      chatHistory.push({ role: 'system', content: cmd.content as string });
+    } else {
+      // If a command is extracted, run it and add to history
+      try {
+        spinner.start('Executing command...'); // Spinner for command execution
+        const commandResponse = await runCommand(cmd.content as string);
+        chatHistory.push({ role: 'system', content: commandResponse });      
+      } catch (error) {
+        spinner.stop(); 
+        console.error('Command execution error:', error);
+        chatHistory.push({ role: 'system', content: `Error executing command: ${error}` });
+        return;
+      } finally {
+        spinner.stop();
+      }
     }
   }
 }
