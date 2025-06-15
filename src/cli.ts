@@ -100,6 +100,9 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
     if (config.openai.provider) {
       msg.provider = config.openai.provider;
     }
+    if (config.openai.baseUrl.includes("openrouter.ai")) {
+      msg.include_reasoning = true;
+    }
 
     const controller = new AbortController();
     const chatTimeout = getChatTimeout();
@@ -280,8 +283,10 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
           const delta = chunkChoice.delta;
           assistantResponseContent += delta.content || '';
 
-          if (delta.reasoning_content) {
+          if (delta.reasoning_content) { // qwen3 running on llama.cpp
             formatter.writeThinking(delta.reasoning_content);
+          } else if (delta.reasoning) { // openrouter.ai
+            formatter.writeThinking(delta.reasoning);
           } else if (delta.content) {
             formatter.writeContent(delta.content);
           }
