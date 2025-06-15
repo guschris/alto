@@ -2,7 +2,7 @@
 import { createInterface } from 'readline';
 import { readFileSync, promises as fsPromises } from 'fs'; // Import promises
 import * as path from 'path';
-import { extractCommand, runCommand } from './commands'; // No change needed here, but keeping for context
+import { runCommand } from './commands';
 import Spinner from './spinner'; // Import the new Spinner class
 import { StreamOutputFormatter } from './outputFormatter'; // Import the new formatter
 
@@ -74,9 +74,25 @@ function parseTimeStringToMs(timeString: string): number {
     }
 }
 
+interface Tool {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters: object;
+  };
+}
+
+interface FunctionCall {
+  name: string;
+  arguments: string; // JSON string
+}
+
 interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  tool_calls?: { id: string; type: "function"; function: FunctionCall }[];
+  tool_call_id?: string;
 }
 
 let config: Config;
@@ -93,6 +109,30 @@ try {
   process.exit(1);
 }
 
+const tools = [
+  {
+    type: "function",
+    function: {
+      name: "execute_command",
+      description: "Executes a shell command on the system.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "The shell command to execute.",
+          },
+          requires_approval: {
+            type: "boolean",
+            description: "Set to true if the command requires user approval before execution (e.g., for destructive commands like 'rm -rf').",
+          },
+        },
+        required: ["command", "requires_approval"],
+      },
+    },
+  },
+];
+
 /**
  * Communicates with the OpenAI API to get a chat completion stream.
  * This function is an asynchronous generator that yields data chunks as they are received.
@@ -107,7 +147,9 @@ async function* chatWithOpenAI(messages: ChatMessage[]) {
     const msg: any = {
       ...request,
       messages: messages,
-      stream: true
+      stream: true,
+      tools: tools,
+      tool_choice: "auto" // This allows the model to decide whether to call a tool or respond
     };
     if (config.openai.baseUrl.includes("openrouter.ai")) {
       msg.include_reasoning = true;
@@ -263,9 +305,13 @@ async function fetchContextWindowSize(): Promise<number | null> {
  * This function manages the display of reasoning content, regular content, and performance metrics.
  * @param stream An asynchronous generator yielding data chunks as they are received.
  */
-async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<string> {
+async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<{
+  content: string;
+  toolCalls: { id: string; type: "function"; function: FunctionCall }[];
+}> {
   let assistantResponseContent = '';
   const formatter = new StreamOutputFormatter();
+  let toolCalls: { id: string; type: "function"; function: FunctionCall }[] = [];
 
   let mergedResponse: any = {
     choices: [],
@@ -290,14 +336,43 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
 
         if (chunkChoice.delta) {
           const delta = chunkChoice.delta;
-          assistantResponseContent += delta.content || '';
 
-          if (delta.reasoning_content) { // qwen3 running on llama.cpp
+          if (delta.tool_calls) {
+            if (!mergedChoice.delta.tool_calls) {
+              mergedChoice.delta.tool_calls = [];
+            }
+            for (const toolCall of delta.tool_calls) {
+              if (toolCall.index !== undefined) {
+                if (!mergedChoice.delta.tool_calls[toolCall.index]) {
+                  mergedChoice.delta.tool_calls[toolCall.index] = {
+                    id: toolCall.id || '',
+                    type: toolCall.type,
+                    function: {
+                      name: toolCall.function?.name || '',
+                      arguments: toolCall.function?.arguments || ''
+                    }
+                  };
+                } else {
+                  // Append to existing tool call arguments
+                  mergedChoice.delta.tool_calls[toolCall.index].function.arguments += toolCall.function?.arguments || '';
+                }
+                formatter.writeToolCall(
+                  mergedChoice.delta.tool_calls[toolCall.index].function.name,
+                  mergedChoice.delta.tool_calls[toolCall.index].function.arguments
+                );
+              }
+            }
+            // Update toolCalls array with the current state
+            toolCalls = mergedChoice.delta.tool_calls.filter((tc: any) => tc); // Remove any undefined entries
+          }
+
+          if (delta.content) {
+            assistantResponseContent += delta.content;
+            formatter.writeContent(delta.content);
+          } else if (delta.reasoning_content) { // qwen3 running on llama.cpp
             formatter.writeThinking(delta.reasoning_content);
           } else if (delta.reasoning) { // deepseek or qwen3 on openrouter.ai
             formatter.writeThinking(delta.reasoning);
-          } else if (delta.content) {
-            formatter.writeContent(delta.content);
           }
         }
 
@@ -317,7 +392,10 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
 
   displayUsageAndTimings(mergedResponse.usage, mergedResponse.timings);
 
-  return assistantResponseContent;
+  return {
+    content: assistantResponseContent,
+    toolCalls: toolCalls
+  };
 }
 
 function displayUsageAndTimings(usage: any, timings: any) {
@@ -339,40 +417,87 @@ function displayUsageAndTimings(usage: any, timings: any) {
 
 async function chat(input: string) {
   chatHistory.push({ role: 'user', content: input });
-  let assistantResponseContent = '';
+
   while (true) {
     try {
       spinner.start(); // Use default random message from Spinner class
       const chatStream = chatWithOpenAI(chatHistory);
-      assistantResponseContent = await handleChatStreamOutput(chatStream);
+      const { content, toolCalls } = await handleChatStreamOutput(chatStream);
+      
+      // Create assistant message with content and tool calls
+      const assistantMessage: ChatMessage = {
+        role: 'assistant',
+        content: content,
+        tool_calls: toolCalls.length > 0 ? toolCalls : undefined
+      };
+      chatHistory.push(assistantMessage);
+
+      if (toolCalls.length > 0) {
+        for (const toolCall of toolCalls) {
+          if (toolCall.function.name === "execute_command") {
+            try {
+              const args = JSON.parse(toolCall.function.arguments);
+              const command = args.command;
+              const requiresApproval = args.requires_approval;
+
+              if (requiresApproval) {
+                const rl = createInterface({
+                  input: process.stdin,
+                  output: process.stdout,
+                });
+                const answer = await new Promise<string>(resolve => {
+                  rl.question(`\x1b[31mApproval needed for command: \x1b[36m${command}\x1b[0m\nExecute? (yes/no): `, resolve);
+                });
+                rl.close();
+
+                if (answer.toLowerCase() !== 'yes') {
+                  chatHistory.push({
+                    role: 'tool',
+                    tool_call_id: toolCall.id,
+                    content: `Command execution denied by user: ${command}`
+                  });
+                  return; // Stop chat if command denied
+                }
+              }
+
+              spinner.start(`Executing command: ${command}...`);
+              const commandOutput = await runCommand(command);
+              spinner.stop();
+              chatHistory.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: commandOutput
+              });
+            } catch (error: any) {
+              spinner.stop();
+              console.error('Tool execution error:', error);
+              chatHistory.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: `ERROR: Tool execution failed: ${error.message}`
+              });
+              return; // Stop chat on tool execution error
+            }
+          } else {
+            // Handle other tools or unknown tools
+            chatHistory.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: `ERROR: Unknown tool: ${toolCall.function.name}`
+            });
+            return; // Stop chat on unknown tool
+          }
+        }
+      } else {
+        // If no tool calls, and assistant responded with content, then we are done
+        return;
+      }
     } catch (error) {
       console.error('Chat error:', error);
-      assistantResponseContent = '';
+      spinner.stop();
+      return; // Exit on chat error
     } finally {
       spinner.stop(); // Ensure spinner is stopped
-    }
-
-    chatHistory.push({ role: 'assistant', content: assistantResponseContent });
-
-    const cmd = extractCommand(assistantResponseContent);
-    if (cmd.type === 'none') {
-      return;
-    } else if (cmd.type === 'error') {      
-      chatHistory.push({ role: 'user', content: cmd.content as string });
-    } else {
-      // If a command is extracted, run it and add to history
-      try {
-        spinner.start('Executing command...'); // Spinner for command execution
-        const commandResponse = await runCommand(cmd.content as string);
-        chatHistory.push({ role: 'user', content: commandResponse });      
-      } catch (error) {
-        spinner.stop(); 
-        console.error('Command execution error:', error);
-        chatHistory.push({ role: 'system', content: `Error executing command: ${error}` });
-        return;
-      } finally {
-        spinner.stop();
-      }
     }
   }
 }
@@ -484,8 +609,19 @@ async function main() { // Make main async
   contextWindowSize = await fetchContextWindowSize(); // Fetch context window size at startup
   clearChatHistory(); // setup the system prompt
   
-  rl.prompt(); // Display the initial prompt
+  if (process.stdin.isTTY) {
+    rl.prompt(); // Display the initial prompt only in interactive mode
+  }
 
+  let isInteractive = process.stdin.isTTY;
+  
+  // Handle readline close event
+  rl.on('close', () => {
+    if (!isInteractive) {
+      process.exit(0);
+    }
+  });
+  
   for await (const input of rl) {
     const trimmedInput = input.trim();
     const lowercasedInput = trimmedInput.toLowerCase();
@@ -497,21 +633,21 @@ async function main() { // Make main async
         return; // Exit the main function after closing readline
       case '/help':
         await showHelp();
-        rl.prompt();
+        if (isInteractive) rl.prompt();
         break;
       case '/models':
         console.log('Fetching available models...');
         await listOpenAIModels();
-        rl.prompt();
+        if (isInteractive) rl.prompt();
         break;
       case '/clear':
         clearChatHistory();
         console.log('Chat history cleared.');
-        rl.prompt();
+        if (isInteractive) rl.prompt();
         break;
       case '/history':
         showChatHistory();
-        rl.prompt();
+        if (isInteractive) rl.prompt();
         break;
       case '/go':
         if (currentMultiLinePrompt.trim().length > 0) {
@@ -520,31 +656,38 @@ async function main() { // Make main async
           console.log('Multi-line prompt is empty. Nothing to submit.');
         }
         currentMultiLinePrompt = ''; // Always reset after /go
-        rl.prompt();
+        if (isInteractive) rl.prompt();
         break;
       case '/system-prompt': // Prevent /system-prompt from being treated as a custom script
         console.log('To permanently change the default system prompt, edit the file scripts/system-prompt.md directly.');
-        rl.prompt();
+        if (isInteractive) rl.prompt();
         break;
       default:
         // Handle /system command explicitly here
         if (lowercasedInput.startsWith('/system ')) {
           setSystemPrompt(input);
-          rl.prompt();
+          if (isInteractive) rl.prompt();
         } else if (lowercasedInput.startsWith('/')) {
           const fileName = trimmedInput.substring(1); // Remove the leading '/'
           await handleFileCommand(fileName);
-          rl.prompt();
+          if (isInteractive) rl.prompt();
         } else {
           // If it's an empty line and there's content in the multi-line prompt, submit it
           if (trimmedInput.length === 0 && currentMultiLinePrompt.trim().length > 0) {
             await chat(currentMultiLinePrompt.trim());
             currentMultiLinePrompt = ''; // Reset after submission
-            rl.prompt();
+            if (isInteractive) rl.prompt();
           } else {
             // Otherwise, it's part of the multi-line prompt
             currentMultiLinePrompt += (currentMultiLinePrompt.length > 0 ? '\n' : '') + input;
-            rl.prompt();
+            // For non-interactive mode, if we have input, process it immediately
+            if (!isInteractive && currentMultiLinePrompt.trim().length > 0) {
+              await chat(currentMultiLinePrompt.trim());
+              currentMultiLinePrompt = '';
+              rl.close();
+              return;
+            }
+            if (isInteractive) rl.prompt();
           }
         }
         break;
