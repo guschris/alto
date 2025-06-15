@@ -379,7 +379,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<{
       }
     }
 
-    if (data.choices[0]?.finish_reason) {
+    if (data?.choices[0]?.finish_reason) {
       break;
     }
   }

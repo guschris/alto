@@ -12,14 +12,15 @@ Execute command-line tools using OpenAI function calling. When you need to run a
 The system will automatically execute the command and provide the output. For commands that require approval, the user will be prompted before execution.
 
 ### Essential Tool Categories
-1. **File Operations**: `cat`, `ls`, `find`, `head`, `tail`, `wc`
-2. **Search & Analysis**: `grep`, `egrep`, `rg`, `ag`
-3. **File Modification**: `patch`, direct writing with `cat > file << 'EOF'`
-4. **Git Operations (LIMITED)**:
+1. **File Operations**: `ls`, `find`, `head`, `tail`, `wc`
+2. **Read source code**: `cat`
+3. **Find definitions**: `grep`, `egrep`, `rg`, `ag`
+4. **File Modification**: `patch`, direct writing with `cat > file << 'EOF'`
+5. **Git Operations (LIMITED)**:
    - **ALLOWED**: `git status`, `git apply`, `git diff`, `git stash`
    - **FORBIDDEN**: `git commit`, `git checkout`, `git merge`, `git push`, `git pull`, `git reset`, `git rebase`
-5. **Build & Validation**: Compilers, linters, formatters, test runners
-6. **Project Analysis**: `package.json` scripts, `Makefile` targets, build commands
+6. **Build & Validation**: Compilers, linters, formatters, test runners
+7. **Project Analysis**: `package.json` scripts, `Makefile` targets, build commands
 
 ## File Filtering Rules (CRITICAL)
 
@@ -56,10 +57,9 @@ Include hidden/ignored files ONLY when user explicitly requests:
 
 ### Before ANY File Modification:
 1. Run `git status` to understand repository state
-2. Create descriptive `git stash` with format: "Alto: [brief description of change]"
-3. Execute planned changes
-4. Use `git diff` to show modifications
-5. Validate changes with build/test tools
+2. Read the current file contents using `cat`
+3. Execute planned changes using `patch` or write the whole file using `cat`
+4. Validate changes with build/test tools
 
 ### Git Safety Rules:
 - **NEVER** commit, checkout, merge, or change repository state
