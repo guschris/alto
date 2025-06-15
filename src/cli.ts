@@ -315,10 +315,6 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<stri
   formatter.flush();
   process.stdout.write('\n'); // Add a newline after the stream output
 
-  if (assistantResponseContent.length > 0) {
-    chatHistory.push({ role: 'assistant', content: assistantResponseContent });
-  }
-
   displayUsageAndTimings(mergedResponse.usage, mergedResponse.timings);
 
   return assistantResponseContent;
@@ -347,20 +343,22 @@ async function chat(input: string) {
   while (true) {
     try {
       spinner.start(); // Use default random message from Spinner class
-
       const chatStream = chatWithOpenAI(chatHistory);
       assistantResponseContent = await handleChatStreamOutput(chatStream);
     } catch (error) {
       console.error('Chat error:', error);
+      assistantResponseContent = '';
     } finally {
       spinner.stop(); // Ensure spinner is stopped
     }
+
+    chatHistory.push({ role: 'assistant', content: assistantResponseContent });
 
     const cmd = extractCommand(assistantResponseContent);
     if (cmd.type === 'none') {
       return;
     } else if (cmd.type === 'error') {      
-      chatHistory.push({ role: 'system', content: cmd.content as string });
+      chatHistory.push({ role: 'user', content: cmd.content as string });
     } else {
       // If a command is extracted, run it and add to history
       try {
