@@ -173,6 +173,7 @@ Example: `execute_command(command="patch -p1 <<'EOF'\\n<diff content>\\nEOF", re
 - `patch -p1` is common for patches generated relative to the current directory using `diff -u`. Adjust `-p` level as needed.
 - Ensure the diff content is valid patch format.
 - Consider `git apply` if the project uses Git, as it offers more robust error handling and can apply patches created with `git diff`.
+- **Error Handling with .rej files**: If the patch command fails to apply a portion of the patch, it will often create a .rej (reject) file next to the original file. This file contains the parts of the patch that could not be applied. If a patch operation seems to fail or produces unexpected results, you should explicitly check for and read these .rej files using cat (e.g., cat filename.js.rej) to understand why the patch failed. The contents of the .rej file will help you identify conflicts or other issues that prevented the patch from being applied cleanly.
 
 # Auto-formatting Considerations
 

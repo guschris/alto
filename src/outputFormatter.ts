@@ -49,9 +49,13 @@ export class StreamOutputFormatter {
 
   private stopToolCall() {
     if (this.isToolCall) {
-      //Note: this works whilst we have command line tool calls ONLY
-      const tc = JSON.parse(this.toolBuffer);
-      process.stdout.write((tc?.command ?? '') + RESET_COLOR);
+      try {
+        //Note: this works whilst we have command line tool calls ONLY
+        const tc = JSON.parse(this.toolBuffer);
+        process.stdout.write((tc?.command ?? '') + RESET_COLOR);
+      } catch (error) {
+        process.stdout.write(RESET_COLOR);
+      }      
       this.isToolCall = false;
     }
   }

@@ -495,14 +495,16 @@ async function chat(input: string, rl: Interface) {
 }
 
 async function clearChatHistory() {
-  chatHistory = [ { role: "system", content: systemPrompt }];
+  // Most OpenAI compatible endpoints and models support sending multple "system" prompts
+  // but NOT Gemini, who only supports a single system prompt :-(
+  chatHistory = []
 
   const gitignorePath = path.join(__dirname, '..', '.gitignore');
   try {
     const gitignoreContent = await fsPromises.readFile(gitignorePath, 'utf8');
     chatHistory.push({
       role: 'system',
-      content: `\n====\n\n.gitignore Contents:\n${gitignoreContent}`
+      content: `${systemPrompt}\n====\n\n.gitignore Contents:\n${gitignoreContent}`
     });
     process.stdout.write(`\x1b[90m.gitignore contents added to system prompt.\x1b[0m\n`);
   } catch (error: any) {
@@ -512,6 +514,9 @@ async function clearChatHistory() {
     } else {
       console.error(`Error reading .gitignore: ${error.message}`);
     }
+  }
+  if (chat.length === 0) {
+     chatHistory.push({ role: "system", content: systemPrompt });
   }
 }
 
