@@ -494,8 +494,25 @@ async function chat(input: string, rl: Interface) {
   }
 }
 
-function clearChatHistory() {
+async function clearChatHistory() {
   chatHistory = [ { role: "system", content: systemPrompt }];
+
+  const gitignorePath = path.join(__dirname, '..', '.gitignore');
+  try {
+    const gitignoreContent = await fsPromises.readFile(gitignorePath, 'utf8');
+    chatHistory.push({
+      role: 'system',
+      content: `\n====\n\n.gitignore Contents:\n${gitignoreContent}`
+    });
+    process.stdout.write(`\x1b[90m.gitignore contents added to system prompt.\x1b[0m\n`);
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      // .gitignore does not exist, which is fine.
+      // process.stdout.write(`\x1b[90m.gitignore not found, skipping addition to system prompt.\x1b[0m\n`);
+    } else {
+      console.error(`Error reading .gitignore: ${error.message}`);
+    }
+  }
 }
 
 function showChatHistory() {
@@ -599,7 +616,7 @@ async function main() { // Make main async
   console.log('Type "/help" for available commands. Enter multi-line prompts and type "/go" or an empty line to submit.');
 
   contextWindowSize = await fetchContextWindowSize(); // Fetch context window size at startup
-  clearChatHistory(); // setup the system prompt
+  await clearChatHistory(); // setup the system prompt
   
   if (process.stdin.isTTY) {
     rl.prompt(); // Display the initial prompt only in interactive mode
@@ -633,7 +650,7 @@ async function main() { // Make main async
         if (isInteractive) rl.prompt();
         break;
       case '/clear':
-        clearChatHistory();
+        await clearChatHistory();
         console.log('Chat history cleared.');
         if (isInteractive) rl.prompt();
         break;
