@@ -452,7 +452,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<{
     }
 
     // Exit loop if the first choice is complete
-    if (data?.choices[0]?.finish_reason) {
+    if (data?.choices?.[0]?.finish_reason) {
       break;
     }
   }
