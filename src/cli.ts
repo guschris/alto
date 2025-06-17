@@ -399,7 +399,7 @@ function processDelta(delta: any, mergedChoice: MergedChoice, formatter: StreamO
  * @param formatter The output formatter.
  * @returns The result of processing the delta within the choice.
  */
-function processChoice(chunkChoice: any, mergedResponse: MergedResponse, formatter: StreamOutputFormatter) {
+function mergeChoice(chunkChoice: any, mergedResponse: MergedResponse, formatter: StreamOutputFormatter) {
   const choiceIndex = chunkChoice.index;
   let mergedChoice = mergedResponse.choices[choiceIndex];
 
@@ -443,7 +443,7 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<{
 
     if (data.choices) {
       for (const chunkChoice of data.choices) {
-        const { newContent, newToolCalls } = processChoice(chunkChoice, mergedResponse, formatter);
+        const { newContent, newToolCalls } = mergeChoice(chunkChoice, mergedResponse, formatter);
         assistantResponseContent += newContent;
         if (newToolCalls) {
           toolCalls = newToolCalls;
@@ -501,6 +501,10 @@ async function chat(input: string, rl: Interface) {
         content: content,
         tool_calls: toolCalls.length > 0 ? toolCalls : undefined
       };
+
+      // console.error("\n\n" + JSON.stringify(toolCalls, null, 2) + "\n");
+      // console.error("\n" + JSON.stringify(content, null, 2) + "\n");
+
       chatHistory.push(assistantMessage);
 
       if (toolCalls.length > 0) {
