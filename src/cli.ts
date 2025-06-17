@@ -577,28 +577,28 @@ async function askForApproval(rl: Interface, command: any) {
 }
 
 async function clearChatHistory() {
-  // Most OpenAI compatible endpoints and models support sending multple "system" prompts
-  // but NOT Gemini, who only supports a single system prompt :-(
-  chatHistory = []
+  chatHistory = [];
 
-  const gitignorePath = path.join(__dirname, '..', '.gitignore');
   try {
+    const unameOutput = await runCommand('uname -s -p');
+    const gitignorePath = path.join(__dirname, '..', '.gitignore');
     const gitignoreContent = await fsPromises.readFile(gitignorePath, 'utf8');
     chatHistory.push({
       role: 'system',
-      content: `${systemPrompt}\n====\n\n.gitignore Contents:\n${gitignoreContent}`
+      content: `${systemPrompt}\n====\n\nSystem Info (uname):\n${unameOutput}\n\n.gitignore Contents:\n${gitignoreContent}`
     });
-    process.stdout.write(`\x1b[90m.gitignore contents added to system prompt.\x1b[0m\n`);
+    process.stdout.write(`\x1b[90mSystem info and .gitignore contents added to system prompt.\x1b[0m\n`);
   } catch (error: any) {
     if (error.code === 'ENOENT') {
       // .gitignore does not exist, which is fine.
       // process.stdout.write(`\x1b[90m.gitignore not found, skipping addition to system prompt.\x1b[0m\n`);
     } else {
-      console.error(`Error reading .gitignore: ${error.message}`);
+      console.error(`Error reading .gitignore or running uname: ${error.message}`);
     }
   }
-  if (chat.length === 0) {
-     chatHistory.push({ role: "system", content: systemPrompt });
+
+  if (chatHistory.length === 0) {
+    chatHistory.push({ role: "system", content: systemPrompt });
   }
 }
 
