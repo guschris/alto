@@ -50,9 +50,21 @@ export class StreamOutputFormatter {
   private stopToolCall() {
     if (this.isToolCall) {
       try {
-        //Note: this works whilst we have command line tool calls ONLY
+        // Handle different tool types
         const tc = JSON.parse(this.toolBuffer);
-        process.stdout.write((tc?.command ?? '') + RESET_COLOR);
+        let displayText = '';
+        
+        if (tc.name === 'search_replace') {
+          // Special handling for search_replace tool
+          const filePath = tc.arguments.filePath;
+          const opCount = tc.arguments.patch_operations.length;
+          displayText = `Applying search_replace to ${filePath} with ${opCount} operations`;
+        } else {
+          // Default handling for other tools
+          displayText = tc?.command ?? 'Unknown command';
+        }
+        
+        process.stdout.write(displayText + RESET_COLOR);
       } catch (error) {
         process.stdout.write(RESET_COLOR);
       }      

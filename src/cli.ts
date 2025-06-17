@@ -5,6 +5,7 @@ import * as path from 'path';
 import { runCommand } from './commands';
 import Spinner from './spinner'; // Import the new Spinner class
 import { StreamOutputFormatter } from './outputFormatter'; // Import the new formatter
+import { searchReplaceTool, searchReplaceToolSchema } from './searchAndReplace'; // Import the new search and replace tool
 
 interface OpenAIConfig {
   apiKey: string;
@@ -143,6 +144,7 @@ const tools = [
       },
     },
   },
+  searchReplaceToolSchema, // Add the new search and replace tool schema
 ];
 
 /**
@@ -545,7 +547,32 @@ async function chat(input: string, rl: Interface) {
               });
               return; // Stop chat on tool execution error
             }
-          } else {
+          } else if (toolCall.function.name === "search_replace") {
+            try {
+              const args = JSON.parse(toolCall.function.arguments);
+              const filePath = args.filePath;
+              const patchOperations = args.patch_operations;
+
+              spinner.start(`Applying search and replace to: ${filePath}...`);
+              const modifiedContent = await searchReplaceTool(filePath, patchOperations);
+              spinner.stop();
+              chatHistory.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: `Successfully applied search and replace to ${filePath}. New content:\n${modifiedContent}`
+              });
+            } catch (error: any) {
+              spinner.stop();
+              console.error('Tool execution error:', error);
+              chatHistory.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: `ERROR: Search and replace failed: ${error.message}`
+              });
+              return; // Stop chat on tool execution error
+            }
+          }
+          else {
             // Handle other tools or unknown tools
             chatHistory.push({
               role: 'tool',
