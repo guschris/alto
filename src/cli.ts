@@ -74,19 +74,31 @@ function parseTimeStringToMs(timeString: string): number {
     }
 }
 
-interface Tool {
-  type: "function";
-  function: {
-    name: string;
-    description?: string;
-    parameters: object;
-  };
-}
-
-interface FunctionCall {
+// Define necessary types for clarity
+type FunctionCall = {
   name: string;
-  arguments: string; // JSON string
-}
+  arguments: string;
+};
+
+type ToolCall = {
+  id: string;
+  type: "function";
+  function: FunctionCall;
+};
+
+type MergedChoice = {
+  index: number;
+  delta: {
+    tool_calls?: any[];
+  };
+  finish_reason: string | null;
+};
+
+type MergedResponse = {
+  choices: MergedChoice[];
+  usage: any;
+  timings: any;
+};
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -301,24 +313,128 @@ async function fetchContextWindowSize(): Promise<number | null> {
 }
 
 /**
- * Handles the asynchronous stream of chat completion data and outputs it to the console.
- * This function manages the display of reasoning content, regular content, and performance metrics.
- * @param stream An asynchronous generator yielding data chunks as they are received.
+ * Initializes and returns the main state object for tracking the stream's response.
  */
-async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<{
-  content: string;
-  toolCalls: { id: string; type: "function"; function: FunctionCall }[];
-}> {
-  let assistantResponseContent = '';
+function initializeStreamState() {
+  const assistantResponseContent = '';
   const formatter = new StreamOutputFormatter();
-  let toolCalls: { id: string; type: "function"; function: FunctionCall }[] = [];
-
-  let mergedResponse: any = {
+  const toolCalls: ToolCall[] = [];
+  const mergedResponse: MergedResponse = {
     choices: [],
     usage: {},
     timings: {}
   };
+  return { assistantResponseContent, formatter, toolCalls, mergedResponse };
+}
 
+/**
+ * Processes the tool_calls part of a delta, updating the merged choice and formatter.
+ * @param toolCallsDelta The array of tool calls from the stream delta.
+ * @param mergedChoice The choice object being built from stream chunks.
+ * @param formatter The output formatter.
+ * @returns The updated, complete tool calls for the current choice.
+ */
+function processToolCalls(toolCallsDelta: any[], mergedChoice: MergedChoice, formatter: StreamOutputFormatter): ToolCall[] {
+  if (!mergedChoice.delta.tool_calls) {
+    mergedChoice.delta.tool_calls = [];
+  }
+
+  for (const toolCall of toolCallsDelta) {
+    if (toolCall.index === undefined) continue;
+
+    const existingToolCall = mergedChoice.delta.tool_calls[toolCall.index];
+
+    if (!existingToolCall) {
+      // Create a new tool call entry
+      mergedChoice.delta.tool_calls[toolCall.index] = {
+        id: toolCall.id || '',
+        type: toolCall.type,
+        function: {
+          name: toolCall.function?.name || '',
+          arguments: toolCall.function?.arguments || ''
+        }
+      };
+    } else {
+      // Append arguments to an existing tool call
+      existingToolCall.function.arguments += toolCall.function?.arguments || '';
+    }
+    // Stream the arguments for real-time display
+    formatter.writeToolCall(toolCall.function?.arguments as string);
+  }
+  // Return a clean array of the current tool calls
+  return mergedChoice.delta.tool_calls.filter((tc: any) => tc);
+}
+
+/**
+ * Processes the delta from a stream chunk, handling content, reasoning, and tool calls.
+ * @param delta The delta object from a choice.
+ * @param mergedChoice The choice object being built.
+ * @param formatter The output formatter.
+ * @returns An object with the new content and any updated tool calls.
+ */
+function processDelta(delta: any, mergedChoice: MergedChoice, formatter: StreamOutputFormatter): { newContent: string, newToolCalls: ToolCall[] | null } {
+  let newContent = '';
+  let newToolCalls: ToolCall[] | null = null;
+
+  if (delta.tool_calls) {
+    newToolCalls = processToolCalls(delta.tool_calls, mergedChoice, formatter);
+  }
+
+  if (delta.content) {
+    newContent = delta.content;
+    formatter.writeContent(newContent);
+  } else if (delta.reasoning_content) {
+    formatter.writeThinking(delta.reasoning_content);
+  } else if (delta.reasoning) {
+    formatter.writeThinking(delta.reasoning);
+  }
+
+  return { newContent, newToolCalls };
+}
+
+/**
+ * Processes a single choice from a stream data chunk.
+ * @param chunkChoice The choice object from the stream.
+ * @param mergedResponse The main response object being built.
+ * @param formatter The output formatter.
+ * @returns The result of processing the delta within the choice.
+ */
+function processChoice(chunkChoice: any, mergedResponse: MergedResponse, formatter: StreamOutputFormatter) {
+  const choiceIndex = chunkChoice.index;
+  let mergedChoice = mergedResponse.choices[choiceIndex];
+
+  // Initialize the choice in our merged response if it's the first time we've seen it
+  if (!mergedChoice) {
+    mergedChoice = { index: choiceIndex, delta: {}, finish_reason: null };
+    mergedResponse.choices[choiceIndex] = mergedChoice;
+  }
+
+  let deltaResult = { newContent: '', newToolCalls: null as ToolCall[] | null };
+  if (chunkChoice.delta) {
+    deltaResult = processDelta(chunkChoice.delta, mergedChoice, formatter);
+  }
+
+  if (chunkChoice.finish_reason) {
+    mergedChoice.finish_reason = chunkChoice.finish_reason;
+  }
+
+  return deltaResult;
+}
+
+/**
+ * Handles the asynchronous stream of chat completion data and outputs it to the console.
+ * This function orchestrates the processing of the stream.
+ * @param stream An asynchronous generator yielding data chunks as they are received.
+ * @returns A promise that resolves to the final aggregated content and tool calls.
+ */
+async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<{
+  content: string;
+  toolCalls: ToolCall[];
+}> {
+  // 1. Initialize State
+  let { assistantResponseContent, formatter, toolCalls, mergedResponse } = initializeStreamState();
+
+  // 2. Process Stream
   for await (const data of stream) {
     spinner.stop();
 
@@ -327,68 +443,26 @@ async function handleChatStreamOutput(stream: AsyncGenerator<any>): Promise<{
 
     if (data.choices) {
       for (const chunkChoice of data.choices) {
-        const choiceIndex = chunkChoice.index;
-        let mergedChoice = mergedResponse.choices[choiceIndex];
-        if (!mergedChoice) {
-          mergedChoice = { index: choiceIndex, delta: {}, finish_reason: null };
-          mergedResponse.choices[choiceIndex] = mergedChoice;
-        }
-
-        if (chunkChoice.delta) {
-          const delta = chunkChoice.delta;
-
-          if (delta.tool_calls) {
-            if (!mergedChoice.delta.tool_calls) {
-              mergedChoice.delta.tool_calls = [];
-            }
-            for (const toolCall of delta.tool_calls) {
-              if (toolCall.index !== undefined) {
-                if (!mergedChoice.delta.tool_calls[toolCall.index]) {
-                  mergedChoice.delta.tool_calls[toolCall.index] = {
-                    id: toolCall.id || '',
-                    type: toolCall.type,
-                    function: {
-                      name: toolCall.function?.name || '',
-                      arguments: toolCall.function?.arguments || ''
-                    }
-                  };
-                } else {
-                  // Append to existing tool call arguments
-                  mergedChoice.delta.tool_calls[toolCall.index].function.arguments += toolCall.function?.arguments || '';
-                }
-                formatter.writeToolCall(toolCall.function?.arguments as string);
-              }
-            }
-            // Update toolCalls array with the current state
-            toolCalls = mergedChoice.delta.tool_calls.filter((tc: any) => tc); // Remove any undefined entries
-          }
-
-          if (delta.content) {
-            assistantResponseContent += delta.content;
-            formatter.writeContent(delta.content);
-          } else if (delta.reasoning_content) { // qwen3 running on llama.cpp
-            formatter.writeThinking(delta.reasoning_content);
-          } else if (delta.reasoning) { // deepseek or qwen3 on openrouter.ai
-            formatter.writeThinking(delta.reasoning);
-          }
-        }
-
-        if (chunkChoice.finish_reason) {
-          mergedChoice.finish_reason = chunkChoice.finish_reason;
+        const { newContent, newToolCalls } = processChoice(chunkChoice, mergedResponse, formatter);
+        assistantResponseContent += newContent;
+        if (newToolCalls) {
+          toolCalls = newToolCalls;
         }
       }
     }
 
+    // Exit loop if the first choice is complete
     if (data?.choices[0]?.finish_reason) {
       break;
     }
   }
 
+  // 3. Finalize
   formatter.flush();
-  process.stdout.write('\n'); // Add a newline after the stream output
-
+  process.stdout.write('\n');
   displayUsageAndTimings(mergedResponse.usage, mergedResponse.timings);
 
+  // 4. Return result
   return {
     content: assistantResponseContent,
     toolCalls: toolCalls
@@ -438,11 +512,8 @@ async function chat(input: string, rl: Interface) {
               const requiresApproval = args.requires_approval;
 
               if (requiresApproval) {
-                const answer = await new Promise<string>(resolve => {
-                  rl.question(`\x1b[31mApproval needed for command: \x1b[36m${command}\x1b[0m\nExecute? (yes/no): `, resolve);
-                });
-
-                if (answer.toLowerCase() !== 'yes') {
+                const allowed = await askForApproval(rl, command);
+                if (!allowed) {
                   chatHistory.push({
                     role: 'tool',
                     tool_call_id: toolCall.id,
@@ -492,6 +563,13 @@ async function chat(input: string, rl: Interface) {
       spinner.stop(); // Ensure spinner is stopped
     }
   }
+}
+
+async function askForApproval(rl: Interface, command: any) {
+  const answer = await new Promise<string>(resolve => {
+    rl.question(`\x1b[31mApproval needed for command: \x1b[36m${command}\x1b[0m\nExecute? (Y/n): `, resolve);
+  });
+  return answer.length === 0 || answer.toLowerCase().charAt(0) === 'y';
 }
 
 async function clearChatHistory() {

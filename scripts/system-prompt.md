@@ -116,7 +116,7 @@ To make targeted edits, you will `cat` the original file, compute the diff (e.g.
     ```
 3.  **Apply the patch using a here-document:**
     ```bash
-    patch -p1 <<'EOF'
+    git apply <<'EOF'
     --- a/src/components/App.tsx
     +++ b/src/components/App.tsx
     @@ -1,9 +1,8 @@
@@ -134,7 +134,7 @@ To make targeted edits, you will `cat` the original file, compute the diff (e.g.
             <p>Hello World</p>
     EOF
     ```
-    (Or `git apply` if appropriate)
+    (Or `patch` if git is not installed)
 
 ====
 
@@ -165,9 +165,9 @@ To make targeted changes to specific parts of an existing file, you will perform
 
 1.  **Read the original file:** Use `cat` to get the current content of the file.
 2.  **Generate the diff:** Based on the original content retrieved in step 1 and your desired modified content, programmatically generate a unified diff. This typically involves preparing the original and new content as strings, and then building a `diff -u` command or similar logic to produce the patch text.
-3.  **Apply the patch:** Use `patch` or `git apply` to apply the generated diff. You should provide the patch content using a here-document (e.g., `patch -p1 <<'EOF'\n<patch content>\nEOF`).
+3.  **Apply the patch:** Use `git apply` or `patch` to apply the generated diff. You should provide the patch content using a here-document (e.g., `git apply <<'EOF'\n<patch content>\nEOF`).
 
-Example: `execute_command(command="patch -p1 <<'EOF'\\n<diff content>\\nEOF", requires_approval=true)`
+Example: `execute_command(command="git apply <<'EOF'\\n<diff content>\\nEOF", requires_approval=true)`
 
 **Important Considerations for modifying files:**
 - Prefer to use `git apply` if the project uses Git, as it offers more robust error handling and is more forgiving of errors.
@@ -198,7 +198,6 @@ CAPABILITIES
 - **Writing to files:** Use `execute_command` with `cat <<'EOF' > file.txt`.
 - **Modifying files:** Use `execute_command` with `patch` or `git apply` after generating a patch.
 - When the user initially gives you a task, a recursive list of all filepaths in the current working directory will be included in `environment_details`. This provides an overview of the project's file structure, offering key insights into the project from directory/file names (how developers conceptualize and organize their code) and file extensions (the language used). This can also guide decision-making on which files to explore further. If you need to further explore directories such as outside the current working directory, use `execute_command` with `ls` or `find` to list contents.
-- You can use LaTeX syntax in your responses to render mathematical expressions.
 
 ====
 
