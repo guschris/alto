@@ -3,6 +3,28 @@ import * as util from 'util';
 
 const execPromise = util.promisify(exec);
 
+export const executeCommandToolSchema = {
+  type: "function",
+  function: {
+    name: "execute_command",
+    description: "Executes a shell command on the system.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          description: "The shell command to execute.",
+        },
+        requires_approval: {
+          type: "boolean",
+          description: "Set to true if the command requires user approval before execution (e.g., for destructive commands like 'rm -rf').",
+        },
+      },
+      required: ["command", "requires_approval"],
+    },
+  },
+};
+
 export async function runCommand(command: string): Promise<string> {
     try {
         const { stdout, stderr } = await execPromise(command);

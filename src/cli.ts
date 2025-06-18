@@ -2,7 +2,7 @@
 import { createInterface, Interface } from 'readline';
 import { readFileSync, promises as fsPromises } from 'fs'; // Import promises
 import * as path from 'path';
-import { runCommand } from './commands';
+import { runCommand, executeCommandToolSchema } from './commands';
 import Spinner from './spinner'; // Import the new Spinner class
 import { StreamOutputFormatter } from './outputFormatter'; // Import the new formatter
 import { searchReplaceTool, searchReplaceToolSchema } from './searchAndReplace'; // Import the new search and replace tool
@@ -123,28 +123,8 @@ try {
 }
 
 const tools = [
-  {
-    type: "function",
-    function: {
-      name: "execute_command",
-      description: "Executes a shell command on the system.",
-      parameters: {
-        type: "object",
-        properties: {
-          command: {
-            type: "string",
-            description: "The shell command to execute.",
-          },
-          requires_approval: {
-            type: "boolean",
-            description: "Set to true if the command requires user approval before execution (e.g., for destructive commands like 'rm -rf').",
-          },
-        },
-        required: ["command", "requires_approval"],
-      },
-    },
-  },
-  searchReplaceToolSchema, // Add the new search and replace tool schema
+  executeCommandToolSchema,
+  searchReplaceToolSchema
 ];
 
 /**
@@ -343,7 +323,6 @@ function processToolCalls(toolCallsDelta: any[], mergedChoice: MergedChoice, for
 
   for (const toolCall of toolCallsDelta) {
     if (toolCall.index === undefined) continue;
-
     const existingToolCall = mergedChoice.delta.tool_calls[toolCall.index];
 
     if (!existingToolCall) {
@@ -504,7 +483,7 @@ async function chat(input: string, rl: Interface) {
         tool_calls: toolCalls.length > 0 ? toolCalls : undefined
       };
 
-      // console.error("\n\n" + JSON.stringify(toolCalls, null, 2) + "\n");
+      console.error("\n\n" + JSON.stringify(toolCalls, null, 2) + "\n");
       // console.error("\n" + JSON.stringify(content, null, 2) + "\n");
 
       chatHistory.push(assistantMessage);
@@ -512,73 +491,17 @@ async function chat(input: string, rl: Interface) {
       if (toolCalls.length > 0) {
         for (const toolCall of toolCalls) {
           if (toolCall.function.name === "execute_command") {
-            try {
-              const args = JSON.parse(toolCall.function.arguments);
-              const command = args.command;
-              const requiresApproval = args.requires_approval;
-
-              if (requiresApproval) {
-                const allowed = await askForApproval(rl, command);
-                if (!allowed) {
-                  chatHistory.push({
-                    role: 'tool',
-                    tool_call_id: toolCall.id,
-                    content: `Command execution denied by user: ${command}`
-                  });
-                  return; // Stop chat if command denied
-                }
-              }
-
-              spinner.start(`Executing command: ${command}...`);
-              const commandOutput = await runCommand(command);
-              spinner.stop();
-              chatHistory.push({
-                role: 'tool',
-                tool_call_id: toolCall.id,
-                content: commandOutput
-              });
-            } catch (error: any) {
-              spinner.stop();
-              console.error('Tool execution error:', error);
-              chatHistory.push({
-                role: 'tool',
-                tool_call_id: toolCall.id,
-                content: `ERROR: Tool execution failed: ${error.message}`
-              });
-              return; // Stop chat on tool execution error
+            if (!await handleExecuteCommand(toolCall, rl)) {
+              return;
             }
           } else if (toolCall.function.name === "search_replace") {
-            try {
-              const args = JSON.parse(toolCall.function.arguments);
-              const filePath = args.filePath;
-              const patchOperations = args.patch_operations;
-
-              spinner.start(`Applying search and replace to: ${filePath}...`);
-              const modifiedContent = await searchReplaceTool(filePath, patchOperations);
-              spinner.stop();
-              chatHistory.push({
-                role: 'tool',
-                tool_call_id: toolCall.id,
-                content: `Successfully applied search and replace to ${filePath}. New content:\n${modifiedContent}`
-              });
-            } catch (error: any) {
-              spinner.stop();
-              console.error('Tool execution error:', error);
-              chatHistory.push({
-                role: 'tool',
-                tool_call_id: toolCall.id,
-                content: `ERROR: Search and replace failed: ${error.message}`
-              });
+            if (!await handleSearchReplace(toolCall)) {
               return; // Stop chat on tool execution error
             }
           }
           else {
             // Handle other tools or unknown tools
-            chatHistory.push({
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              content: `ERROR: Unknown tool: ${toolCall.function.name}`
-            });
+            handleUnknownTool(toolCall);
             return; // Stop chat on unknown tool
           }
         }
@@ -593,6 +516,80 @@ async function chat(input: string, rl: Interface) {
     } finally {
       spinner.stop(); // Ensure spinner is stopped
     }
+  }
+}
+
+function handleUnknownTool(toolCall: ToolCall) {
+  chatHistory.push({
+    role: 'tool',
+    tool_call_id: toolCall.id,
+    content: `ERROR: Unknown tool: ${toolCall.function.name}`
+  });
+}
+
+async function handleExecuteCommand(toolCall: ToolCall, rl: Interface): Promise<boolean> {
+  try {
+    const args = JSON.parse(toolCall.function.arguments);
+    const command = args.command;
+    const requiresApproval = args.requires_approval;
+
+    if (requiresApproval) {
+      const allowed = await askForApproval(rl, command);
+      if (!allowed) {
+        chatHistory.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: `Command execution denied by user: ${command}`
+        });
+        return false;
+      }
+    }
+
+    spinner.start(`Executing command: ${command}...`);
+    const commandOutput = await runCommand(command);
+    spinner.stop();
+    chatHistory.push({
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      content: commandOutput
+    });
+    return true;
+  } catch (error: any) {
+    spinner.stop();
+    console.error('Tool execution error:', error);
+    chatHistory.push({
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      content: `ERROR: Tool execution failed: ${error.message}`
+    });
+    return false;
+  }
+}
+
+async function handleSearchReplace(toolCall: ToolCall): Promise<boolean> {
+  try {
+    const args = JSON.parse(toolCall.function.arguments);
+    const filePath = args.filePath;
+    const patchOperations = args.patch_operations;
+
+    spinner.start(`Applying search and replace to: ${filePath}...`);
+    const modifiedContent = await searchReplaceTool(filePath, patchOperations);
+    spinner.stop();
+    chatHistory.push({
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      content: `Successfully applied search and replace to ${filePath}. New content:\n${modifiedContent}`
+    });
+    return true;
+  } catch (error: any) {
+    spinner.stop();
+    console.error('Tool execution error:', error);
+    chatHistory.push({
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      content: `ERROR: Search and replace failed: ${error.message}`
+    });
+    return false;
   }
 }
 
